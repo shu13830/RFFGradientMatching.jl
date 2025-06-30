@@ -1,3 +1,10 @@
 /Manifest.toml
 /docs/Manifest.toml
 /docs/build/
+combine_src.sh
+combined_src.jl
+/experiments/*/results/
+
+src/models/agm.jl
+src/models/fgpgm.jl
+src/models/vgm.jl
