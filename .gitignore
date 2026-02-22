@@ -4,6 +4,7 @@
 combine_src.sh
 combined_src.jl
 /experiments/*/results/
+.ipynb_checkpoints/
 
 src/models/agm.jl
 src/models/fgpgm.jl
