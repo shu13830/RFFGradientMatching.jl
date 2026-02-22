@@ -1,3 +1,5 @@
+_to_colvecs(x::AbstractVector{<:Real}) = ColVecs(reshape(x, 1, :))
+
 struct SigmoidKernel <: KernelFunctions.Kernel
     b::Float64  # Scaling parameter to adjust influence
     a::Float64  # Bias term

@@ -8,3 +8,13 @@ combined_src.jl
 src/models/agm.jl
 src/models/fgpgm.jl
 src/models/vgm.jl
+
+# Project docs (not public yet)
+CLAUDE.md
+Architecture.md
+Implementation.md
+Experiments.md
+Testing.md
+
+# Internal work logs
+internal/

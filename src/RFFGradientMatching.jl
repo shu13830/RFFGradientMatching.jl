@@ -13,6 +13,7 @@ using Distributions
 using EllipticalSliceSampling
 using FillArrays
 using ForwardDiff
+using GeneralizedRFF
 using GPLikelihoods
 using HypergeometricFunctions
 using KernelFunctions
@@ -55,10 +56,6 @@ include("sampler/blockedsampler/blocks.jl")
 include("sampler/blockedsampler/plot.jl")
 include("sampler/blockedsampler/hmc_utils.jl")
 
-include("models/agm.jl")
-include("models/fgpgm.jl")
-include("models/vgm.jl")
-
 include("utils.jl")
 include("validate.jl")
 include("optimize.jl")
@@ -79,7 +76,6 @@ export pack_param_dict, pack_param_dict_from_vec, update_param_dict_from_vec!,
     pack_param_vec_from_dict, pack_param_vec, 
     update_model_with_dict!, update_model_with_vec!
 
-export FGPGM, AGM, VGM
 export optimize_ϕ_and_σ!, optimize_u!
 export initialize_vars!
 

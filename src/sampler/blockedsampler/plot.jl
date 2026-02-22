@@ -38,10 +38,10 @@ function compiled_output(i::Int, n_iter::Int, logdens_history::Vector{Float64})
         # In CMD (terminal), screen is cleared with ANSI escape sequence and output is in plain text
         print("\033[H\033[J")
         println(output)
-    else
-        # In Jupyter Notebook, existing output is cleaed and output is givem in HTML after ANSI to HTML conversion
+    elseif isdefined(Main, :IJulia) && isdefined(Main.IJulia, :clear_output)
+        # In Jupyter Notebook, existing output is cleared and output is given in HTML after ANSI to HTML conversion
         html_output = ansi_to_html(output)
-        IJulia.clear_output()
+        Main.IJulia.clear_output()
         display("text/html", html_output)
     end
 end

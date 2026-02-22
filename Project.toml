@@ -14,11 +14,11 @@ BayesianLinearRegressors = "f579363c-4606-5e5c-a623-c4549f609c4b"
 Bijectors = "76274a88-744f-5084-9051-94815aaf08c4"
 DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
-DynamicalSystems = "61744808-ddfa-5f27-97ff-6e42cc95d634"
 EllipticalSliceSampling = "cad2338a-1db2-11e9-3401-43bc07c9ede2"
 FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 GPLikelihoods = "6031954c-0455-49d7-b3b9-3e1c99afaf40"
+GeneralizedRFF = "950ae3bb-d4bf-4db0-8138-3e38a2bc7c29"
 HypergeometricFunctions = "34004b35-14d8-5ef3-9330-4cdb6864b03a"
 KernelFunctions = "ec8451be-7e33-11e9-00cf-bbf324bd1392"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -42,7 +42,7 @@ UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
 [compat]
-julia = "1.9"
+julia = "1.10"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
