@@ -128,4 +128,25 @@
         gm.β[1] = 1.0
         @test validate_∇ulogpdf(gm, [:X, :θ])
     end
+
+    @testset "GPGM ∇tϕ_logpdf_ϕ" begin
+        gm = create_test_gpgm()
+        @test validate_∇tϕ_logpdf_ϕ(gm)
+    end
+
+    @testset "GPGM ∇tϕ_logpdf_x" begin
+        gm = create_test_gpgm()
+        @test validate_∇tϕ_logpdf_x(gm)
+    end
+
+    @testset "GPGM ∇tϕ_logpdf_y" begin
+        gm = create_test_gpgm()
+        @test validate_∇tϕ_logpdf_y(gm)
+    end
+
+    @testset "GPGM ∇tϕ_ulogpdf_e" begin
+        gm = create_test_gpgm()
+        gm.β[1] = 1.0
+        @test validate_∇tϕ_ulogpdf_e(gm)
+    end
 end

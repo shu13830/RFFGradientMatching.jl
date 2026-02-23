@@ -1,6 +1,6 @@
 name = "RFFGradientMatching"
 uuid = "a1462534-b820-4bae-8d7a-6edb4ef569c0"
-authors = ["Shuichi Miyazawa"]
+authors = ["Anonymous"]
 version = "1.0.0-DEV"
 
 [deps]
@@ -12,6 +12,8 @@ ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
 ArrayInterface = "4fba245c-0d91-5ea0-9b3e-6abc04ee57a9"
 BayesianLinearRegressors = "f579363c-4606-5e5c-a623-c4549f609c4b"
 Bijectors = "76274a88-744f-5084-9051-94815aaf08c4"
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 EllipticalSliceSampling = "cad2338a-1db2-11e9-3401-43bc07c9ede2"
@@ -20,6 +22,7 @@ ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 GPLikelihoods = "6031954c-0455-49d7-b3b9-3e1c99afaf40"
 GeneralizedRFF = "950ae3bb-d4bf-4db0-8138-3e38a2bc7c29"
 HypergeometricFunctions = "34004b35-14d8-5ef3-9330-4cdb6864b03a"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 KernelFunctions = "ec8451be-7e33-11e9-00cf-bbf324bd1392"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 LogDensityProblems = "6fdf6af0-433a-55f7-b3ed-c6c6e0b8df7c"

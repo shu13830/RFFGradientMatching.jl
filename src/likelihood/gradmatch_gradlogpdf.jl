@@ -557,10 +557,49 @@ end
     ∇tγ_ulogpdf_e(gm.odegrad, gm.gp, X, W, θ, γ)
 
 # --- ϕ ---
-# TODO
+
+# Helper: compute K, K', K'' as differentiable functions of kernel parameters.
+# These analytical formulas support ForwardDiff Dual numbers for ϕ gradient computation.
+function _K_K′_K″_sqexp(ℓ, α, σᵤ, z)
+    N = length(z)
+    D = [z[i] - z[j] for j in 1:N, i in 1:N]  # D[j,i] = z[i] - z[j]
+    D² = D .^ 2
+    K_base = α^2 .* exp.(-D² ./ (2 * ℓ^2))
+    K = K_base + σᵤ^2 * LinearAlgebra.I
+    K′ = K_base .* (-D ./ ℓ^2)
+    K″ = K_base .* (1 / ℓ^2 .- D² ./ ℓ^4)
+    return K, K′, K″
+end
+
+function _K_K′_K″_matern52(ℓ, α, σᵤ, z)
+    N = length(z)
+    D = [z[i] - z[j] for j in 1:N, i in 1:N]
+    R = abs.(D)
+    s5 = sqrt(5.0)
+    exp_term = exp.(-s5 .* R ./ ℓ)
+    K_base = α^2 .* (1 .+ s5 .* R ./ ℓ .+ 5 .* R .^ 2 ./ (3 * ℓ^2)) .* exp_term
+    K = K_base + σᵤ^2 * LinearAlgebra.I
+    K′ = α^2 .* (-5 / (3 * ℓ^2)) .* D .* (1 .+ s5 .* R ./ ℓ) .* exp_term
+    K″ = α^2 .* (5 / (3 * ℓ^2)) .* (1 .+ s5 .* R ./ ℓ .- 5 .* R .^ 2 ./ ℓ^2) .* exp_term
+    return K, K′, K″
+end
+
+function _K_K′_K″_dispatch(base_k, ϕk, σᵤ, z)
+    inner = ϕk[1:end-1]
+    α = ϕk[end]
+    if base_k isa SqExponentialKernel
+        return _K_K′_K″_sqexp(inner[1], α, σᵤ, z)
+    elseif base_k isa Matern52Kernel
+        return _K_K′_K″_matern52(inner[1], α, σᵤ, z)
+    else
+        error("ϕ gradient not implemented for kernel: $(typeof(base_k)). Supported: SqExponentialKernel, Matern52Kernel")
+    end
+end
+
+# ϕ prior gradient (fixed: use eachcol for correct matrix column iteration)
 function ∇tϕ_logpdf_ϕ(gp::Union{Vector{GP},Vector{RFFGP}}, ϕ::AbstractMatrix{<:Real})
     grads = AbstractVector{<:Real}[]
-    for (gpk, ϕk) in zip(gp, ϕ)
+    for (gpk, ϕk) in zip(gp, eachcol(ϕ))
         grads_k = Float64[]
         for (tϕki, ϕki) in zip(gpk.tϕ, ϕk)
             push!(grads_k, gradlogpdf(tϕki.prior, calc_tvar(tϕki, ϕki)))
@@ -571,94 +610,152 @@ function ∇tϕ_logpdf_ϕ(gp::Union{Vector{GP},Vector{RFFGP}}, ϕ::AbstractMatri
 end
 ∇tϕ_logpdf_ϕ(gm::Union{RFFGM,GPGM}, ϕ::AbstractMatrix{<:Real}) = ∇tϕ_logpdf_ϕ(gm.gp, ϕ)
 
-# TODO
-function ∇tϕ_logpdf_y(
-    gp::Vector{GP}, Y_std::AbstractMatrix{<:Real}, X::AbstractMatrix{<:Real}, σ::AbstractVector{<:Real}, ϕ::AbstractMatrix{<:Real}
-)
-    error("Not implemented")
-    ∇ϕ_logpdf_y = ∇tx_logpdf_y(gp, Y_std, X, σ) * ∇ϕ_x(gp, X, ϕ)
-    ∇t𝓁_ϕ = eval_dϕd𝓁(gp, X, ϕ)
-    ∇tα_ϕ = eval_dϕdα(gp, X, ϕ)
-    grads = Float64[∇ϕ_logpdf_y * ∇t𝓁_ϕ, ∇ϕ_logpdf_y * ∇tα_ϕ]
-    return grads
-end
-∇tϕ_logpdf_y(gm::GPGM, X::AbstractMatrix{<:Real}, σ::AbstractVector{<:Real}, ϕ::AbstractMatrix{<:Real}) =
-    ∇tϕ_logpdf_y(gm.gp, X, σ, ϕ)
+# --- GPGM ϕ gradients (ForwardDiff-based) ---
 
-# TODO
-function ∇tϕ_logpdf_y(gp::Vector{RFFGP},
-    Y_std::AbstractMatrix{<:Real}, X::AbstractMatrix{<:Real}, W::AbstractMatrix{<:Real}, σ::AbstractVector{<:Real}, ϕ::AbstractMatrix{<:Real}
-)
-    error("Not implemented")
-    ∇ϕ_logpdf_y =  ∇w_logpdf_y(gp, Y_std, W, σ) * ∇ϕ_w(gp, X, ϕ)
-    ∇t𝓁_ϕ = eval_dϕd𝓁(gp, X, ϕ)
-    ∇tα_ϕ = eval_dϕdα(gp, X, ϕ)
-    grads = Float64[∇ϕ_logpdf_y * ∇t𝓁_ϕ, ∇ϕ_logpdf_y * ∇tα_ϕ]
-    return grads
-end
-∇tϕ_logpdf_y(gm::RFFGM,
-    Y_std::AbstractMatrix{<:Real}, X::AbstractMatrix{<:Real}, σ::AbstractVector{<:Real}, ϕ::AbstractMatrix{<:Real}) =
-    ∇tϕ_logpdf_y(gm.gp, X, σ, ϕ)
-
-# TODO
+# GP prior gradient w.r.t. transformed ϕ
 function ∇tϕ_logpdf_x(gp::Vector{GP}, X::AbstractMatrix{<:Real}, ϕ::AbstractMatrix{<:Real})
-    error("Not implemented")
-    ∇ϕ_logpdf_x =  ∇tx_logpdf_x(gp, X, σ) * ∇ϕ_x(gp, X, ϕ)
-    ∇t𝓁_ϕ = eval_dϕd𝓁(gp, X, ϕ)
-    ∇tα_ϕ = eval_dϕdα(gp, X, ϕ)
-    grads = Float64[∇ϕ_logpdf_x * ∇t𝓁_ϕ, ∇ϕ_logpdf_x * ∇tα_ϕ]
-    return grads
+    n_ϕ = size(ϕ, 1)
+    n_gp = length(gp)
+    base_kernels = [params(gpk.k)[1] for gpk in gp]
+
+    function f(tϕ_vec)
+        val = zero(eltype(tϕ_vec))
+        for k in 1:n_gp
+            offset = (k-1) * n_ϕ
+            ϕk = [calc_var(gp[k].tϕ[j], tϕ_vec[offset + j]) for j in 1:n_ϕ]
+            Kmat, _, _ = _K_K′_K″_dispatch(base_kernels[k], ϕk, gp[k].σᵤ, gp[k].z)
+            xk = X[k, :]
+            C = cholesky(Symmetric(Kmat))
+            val += -0.5 * (length(xk) * log(2π) + logdet(C) + dot(xk, C \ xk))
+        end
+        return val
+    end
+
+    tϕ_current = Float64[calc_tvar(gp[k].tϕ[j], ϕ[j,k]) for j in 1:n_ϕ, k in 1:n_gp]
+    return ForwardDiff.gradient(f, vec(tϕ_current))
 end
 ∇tϕ_logpdf_x(gm::GPGM, X::AbstractMatrix{<:Real}, ϕ::AbstractMatrix{<:Real}) =
     ∇tϕ_logpdf_x(gm.gp, X, ϕ)
 
-# TODO
-function ∇tϕ_logpdf_x(gp::Vector{RFFGP}, X::AbstractMatrix{<:Real}, ϕ::AbstractMatrix{<:Real})
-    error("Not implemented")
-    ∇ϕ_logpdf_x =  ∇w_logpdf_x(gp, X, σ) * ∇ϕ_w(gp, X, ϕ)
-    ∇t𝓁_ϕ = eval_dϕd𝓁(gp, X, ϕ)
-    ∇tα_ϕ = eval_dϕdα(gp, X, ϕ)
-    grads = Float64[∇ϕ_logpdf_x * ∇t𝓁_ϕ, ∇ϕ_logpdf_x * ∇tα_ϕ]
-    return grads
-end
-∇tϕ_logpdf_x(gm::RFFGM, X::AbstractMatrix{<:Real}, ϕ::AbstractMatrix{<:Real}) =
-    ∇tϕ_logpdf_x(gm.gp, X, ϕ)
+# Observation likelihood gradient w.r.t. transformed ϕ
+function ∇tϕ_logpdf_y(
+    gp::Vector{GP}, Y_std::AbstractMatrix{<:Real}, X::AbstractMatrix{<:Real},
+    σ::AbstractVector{<:Real}, ϕ::AbstractMatrix{<:Real}
+)
+    n_ϕ = size(ϕ, 1)
+    n_gp = length(gp)
 
-# TODO
+    # When z == x for all components, logpdf_y doesn't depend on ϕ
+    if all(gpk.z == gpk.x for gpk in gp)
+        return zeros(n_ϕ * n_gp)
+    end
+
+    function f(tϕ_vec)
+        val = zero(eltype(tϕ_vec))
+        for k in 1:n_gp
+            ystdk = Y_std[k, :]
+            if gp[k].z == gp[k].x
+                # No ϕ dependence: y_mean = x, y_cov = σ²I
+                y_mean = X[k, :]
+                val += -0.5 * sum((ystdk .- y_mean) .^ 2 ./ σ[k]^2 .+ log(σ[k]^2) .+ log(2π))
+            else
+                offset = (k-1) * n_ϕ
+                ϕk = [calc_var(gp[k].tϕ[j], tϕ_vec[offset + j]) for j in 1:n_ϕ]
+                k_new = reconstruct_kernel(gp[k].k, ϕk)
+                Kzz = kernelmatrix(k_new, gp[k].z) + gp[k].σᵤ^2 * LinearAlgebra.I
+                Kxz = kernelmatrix(k_new, gp[k].x, gp[k].z)
+                Kxx_diag = [k_new(xi, xi) for xi in gp[k].x]
+                KxzKzz_inv = Kxz / Symmetric(Kzz)
+                y_mean = KxzKzz_inv * X[k, :]
+                K̂_diag = Kxx_diag .- vec(sum(KxzKzz_inv .* Kxz, dims=2))
+                y_var = max.(K̂_diag, zero(eltype(tϕ_vec))) .+ 1e-10 .+ σ[k]^2
+                val += -0.5 * sum((ystdk .- y_mean) .^ 2 ./ y_var .+ log.(y_var) .+ log(2π))
+            end
+        end
+        return val
+    end
+
+    tϕ_current = Float64[calc_tvar(gp[k].tϕ[j], ϕ[j,k]) for j in 1:n_ϕ, k in 1:n_gp]
+    return ForwardDiff.gradient(f, vec(tϕ_current))
+end
+∇tϕ_logpdf_y(gm::GPGM, Y_std::AbstractMatrix{<:Real}, X::AbstractMatrix{<:Real},
+    σ::AbstractVector{<:Real}, ϕ::AbstractMatrix{<:Real}) =
+    ∇tϕ_logpdf_y(gm.gp, Y_std, X, σ, ϕ)
+
+# Gradient matching term gradient w.r.t. transformed ϕ
 function ∇tϕ_ulogpdf_e(
     odegrad::ODEGrad,
-    gp::Vector{GP}, 
-    X::AbstractMatrix{<:Real}, 
+    gp::Vector{GP},
+    X::AbstractMatrix{<:Real},
     θ::AbstractVector{<:Real},
     γ::T,
     ϕ::AbstractMatrix{<:Real}
 ) where {T<:Real}
-    error("Not implemented")
-    ∇ϕ_ulogpdf_e =  ∇tx_ulogpdf_e(odegrad, gp, X, θ, γ) * ∇ϕ_x(gp, X, ϕ)
-    ∇t𝓁_ϕ = eval_dϕd𝓁(gp, X, ϕ)
-    ∇tα_ϕ = eval_dϕdα(gp, X, ϕ)
-    grads = Float64[∇ϕ_ulogpdf_e * ∇t𝓁_ϕ, ∇ϕ_ulogpdf_e * ∇tα_ϕ]
-    return grads
+    n_ϕ = size(ϕ, 1)
+    n_gp = length(gp)
+    base_kernels = [params(gpk.k)[1] for gpk in gp]
+
+    # Precompute ODE derivatives (independent of ϕ)
+    X_destandardized = calc_destandardized_X(gp, X)
+    y_std_vec = get_y_std(gp)
+    ẋode = eval_ẋ(odegrad, X_destandardized, θ) ./ y_std_vec  # K × N
+
+    function f(tϕ_vec)
+        val = zero(eltype(tϕ_vec))
+        for k in 1:n_gp
+            offset = (k-1) * n_ϕ
+            ϕk = [calc_var(gp[k].tϕ[j], tϕ_vec[offset + j]) for j in 1:n_ϕ]
+            Kmat, K′mat, K″mat = _K_K′_K″_dispatch(base_kernels[k], ϕk, gp[k].σᵤ, gp[k].z)
+
+            # dfdt_mean = K'ᵀ K⁻¹ x
+            xk = X[k, :]
+            Kinv_xk = Symmetric(Kmat) \ xk
+            ẋgp_k = K′mat' * Kinv_xk
+
+            # dfdt_cov = K'' - K'ᵀ K⁻¹ K'
+            Kinv_K′ = Symmetric(Kmat) \ K′mat
+            C_k = K″mat - K′mat' * Kinv_K′
+
+            # Gradient matching error
+            e_k = ẋgp_k - ẋode[k, :]
+            e_cov_k = Symmetric(C_k + γ^2 * LinearAlgebra.I)
+            Ce = cholesky(e_cov_k)
+            val += -0.5 * (length(e_k) * log(2π) + logdet(Ce) + dot(e_k, Ce \ e_k))
+        end
+        return val
+    end
+
+    tϕ_current = Float64[calc_tvar(gp[k].tϕ[j], ϕ[j,k]) for j in 1:n_ϕ, k in 1:n_gp]
+    return ForwardDiff.gradient(f, vec(tϕ_current))
 end
-∇tϕ_ulogpdf_e(gm::GPGM, X::AbstractMatrix{<:Real}, θ::AbstractVector{<:Real}, γ::T, ϕ::AbstractMatrix{<:Real}) where {T<:Real} =
+∇tϕ_ulogpdf_e(gm::GPGM, X::AbstractMatrix{<:Real}, θ::AbstractVector{<:Real},
+    γ::T, ϕ::AbstractMatrix{<:Real}) where {T<:Real} =
     ∇tϕ_ulogpdf_e(gm.odegrad, gm.gp, X, θ, γ, ϕ)
 
-# TODO
+# --- RFFGM ϕ gradients (not supported — use grid search) ---
+
+function ∇tϕ_logpdf_x(gp::Vector{RFFGP}, X::AbstractMatrix{<:Real}, ϕ::AbstractMatrix{<:Real})
+    error("ϕ HMC sampling is not supported for RFFGM. Use grid search (optimize_ϕ_and_σ!) instead.")
+end
+
+function ∇tϕ_logpdf_y(
+    gp::Vector{RFFGP}, Y_std::AbstractMatrix{<:Real}, X::AbstractMatrix{<:Real},
+    σ::AbstractVector{<:Real}, ϕ::AbstractMatrix{<:Real}
+)
+    error("ϕ HMC sampling is not supported for RFFGM. Use grid search (optimize_ϕ_and_σ!) instead.")
+end
+
 function ∇tϕ_ulogpdf_e(
     odegrad::ODEGrad,
-    gp::Vector{GP}, 
-    X::AbstractMatrix{<:Real}, 
+    gp::Vector{RFFGP},
+    X::AbstractMatrix{<:Real},
     W::AbstractMatrix{<:Real},
     θ::AbstractVector{<:Real},
     γ::T,
     ϕ::AbstractMatrix{<:Real}
 ) where {T<:Real}
-    error("Not implemented")
-    ∇ϕ_ulogpdf_e =  ∇w_ulogpdf_e(odegrad, gp, X, W, θ, γ) * ∇ϕ_w(gp, X, ϕ)
-    ∇t𝓁_ϕ = eval_dϕd𝓁(gp, X, ϕ)
-    ∇tα_ϕ = eval_dϕdα(gp, X, ϕ)
-    grads = Float64[∇ϕ_ulogpdf_e * ∇t𝓁_ϕ, ∇ϕ_ulogpdf_e * ∇tα_ϕ]
-    return grads
+    error("ϕ HMC sampling is not supported for RFFGM. Use grid search (optimize_ϕ_and_σ!) instead.")
 end
-∇tϕ_ulogpdf_e(gm::RFFGM, X::AbstractMatrix{<:Real}, W::AbstractMatrix{<:Real}, θ::AbstractVector{<:Real}, γ::T, ϕ::AbstractMatrix{<:Real}) where {T<:Real} =
+∇tϕ_ulogpdf_e(gm::RFFGM, X::AbstractMatrix{<:Real}, W::AbstractMatrix{<:Real},
+    θ::AbstractVector{<:Real}, γ::T, ϕ::AbstractMatrix{<:Real}) where {T<:Real} =
     ∇tϕ_ulogpdf_e(gm.odegrad, gm.gp, X, W, θ, γ, ϕ)

@@ -1,0 +1,2 @@
+"ode","method","N","seed","rmsd","ess_mean","time_sec","ess_per_sec","theta_a_mean","theta_a_true","ess_a","theta_b_mean","theta_b_true","ess_b","theta_c_mean","theta_c_true","ess_c","theta_d_mean","theta_d_true","ess_d"
+"LV","MAGI",10,42,0.789632844448374,7.62895184401843,2.241,3.40426231326123,2.32880529281254,2,2.73889294459288,1.23617330413244,1,2.84009309281963,2.53183962651763,4,8.6409143344172,0.582035308074664,1,16.295907004244

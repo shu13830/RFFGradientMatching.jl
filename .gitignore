@@ -4,6 +4,7 @@
 combine_src.sh
 combined_src.jl
 /experiments/*/results/
+/experiments/*/figures/
 .ipynb_checkpoints/
 
 src/models/agm.jl
@@ -19,3 +20,6 @@ Testing.md
 
 # Internal work logs
 internal/
+
+# Development guide (private)
+DEVELOPMENT_GUIDE.md

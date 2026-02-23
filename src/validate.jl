@@ -298,6 +298,90 @@ function validate_∇y_logpdf_y(gm::RFFGM; atol=1e-5)
     return true
 end
 
+# ∇ϕ -----
+function validate_∇tϕ_logpdf_ϕ(gpgm::GPGM; atol=1e-5)
+    function ∇tϕ_logpdf_ϕ_autodiff(gpgm, transformed_ϕ)
+        function logpdf_fn(tϕ)
+            ϕ = calc_ϕ(gpgm.gp, reshape(tϕ, size(transformed_ϕ)))
+            return logpdf_ϕ(gpgm, ϕ)
+        end
+        return ForwardDiff.gradient(logpdf_fn, vec(transformed_ϕ))
+    end
+
+    ϕ = get_ϕ(gpgm)
+    transformed_ϕ = get_transformed_ϕ(gpgm)
+    analytic_grad = ∇tϕ_logpdf_ϕ(gpgm, ϕ)
+    autodiff_grad = ∇tϕ_logpdf_ϕ_autodiff(gpgm, transformed_ϕ)
+    @assert isapprox(analytic_grad, autodiff_grad, atol=atol)
+    return true
+end
+
+# Central finite difference gradient (used when reconstruct_gp is not ForwardDiff-compatible)
+function _finite_diff_gradient(f::Function, x::Vector{Float64}; ε=1e-5)
+    n = length(x)
+    grad = zeros(n)
+    for i in 1:n
+        x_plus = copy(x); x_plus[i] += ε
+        x_minus = copy(x); x_minus[i] -= ε
+        grad[i] = (f(x_plus) - f(x_minus)) / (2ε)
+    end
+    return grad
+end
+
+function validate_∇tϕ_logpdf_x(gpgm::GPGM; atol=1e-4)
+    ϕ = get_ϕ(gpgm)
+    X = get_X(gpgm)
+    transformed_ϕ = get_transformed_ϕ(gpgm)
+
+    function logpdf_fn(tϕ)
+        ϕ_mat = calc_ϕ(gpgm.gp, reshape(tϕ, size(transformed_ϕ)))
+        gp_new = reconstruct_gp(gpgm.gp; ϕ=ϕ_mat)
+        return logpdf_x(gp_new, X)
+    end
+
+    analytic_grad = ∇tϕ_logpdf_x(gpgm, X, ϕ)
+    fd_grad = _finite_diff_gradient(logpdf_fn, vec(Float64.(transformed_ϕ)))
+    @assert isapprox(analytic_grad, fd_grad, atol=atol) "∇tϕ_logpdf_x mismatch:\n  analytic=$analytic_grad\n  finite_diff=$fd_grad"
+    return true
+end
+
+function validate_∇tϕ_logpdf_y(gpgm::GPGM; atol=1e-4)
+    Y_std = get_standardized_Y(gpgm)
+    X = get_X(gpgm)
+    σ = get_σ(gpgm)
+    ϕ = get_ϕ(gpgm)
+    transformed_ϕ = get_transformed_ϕ(gpgm)
+
+    function logpdf_fn(tϕ)
+        ϕ_mat = calc_ϕ(gpgm.gp, reshape(tϕ, size(transformed_ϕ)))
+        gp_new = reconstruct_gp(gpgm.gp; ϕ=ϕ_mat)
+        return logpdf_y(gp_new, Y_std, X, σ)
+    end
+
+    analytic_grad = ∇tϕ_logpdf_y(gpgm, Y_std, X, σ, ϕ)
+    fd_grad = _finite_diff_gradient(logpdf_fn, vec(Float64.(transformed_ϕ)))
+    @assert isapprox(analytic_grad, fd_grad, atol=atol) "∇tϕ_logpdf_y mismatch:\n  analytic=$analytic_grad\n  finite_diff=$fd_grad"
+    return true
+end
+
+function validate_∇tϕ_ulogpdf_e(gpgm::GPGM; atol=1e-4)
+    X = get_X(gpgm)
+    θ = get_θ(gpgm)
+    γ = get_γ(gpgm)
+    ϕ = get_ϕ(gpgm)
+    transformed_ϕ = get_transformed_ϕ(gpgm)
+
+    function logpdf_fn(tϕ)
+        ϕ_mat = calc_ϕ(gpgm.gp, reshape(tϕ, size(transformed_ϕ)))
+        return ulogpdf_e(gpgm, X, θ, γ, ϕ_mat)
+    end
+
+    analytic_grad = ∇tϕ_ulogpdf_e(gpgm, X, θ, γ, ϕ)
+    fd_grad = _finite_diff_gradient(logpdf_fn, vec(Float64.(transformed_ϕ)))
+    @assert isapprox(analytic_grad, fd_grad, atol=atol) "∇tϕ_ulogpdf_e mismatch:\n  analytic=$analytic_grad\n  finite_diff=$fd_grad"
+    return true
+end
+
 # ∇ -----
 # TESTED
 function validate_∇ulogpdf(gm::Union{GPGM,RFFGM}, sample_target::Vector{Symbol}; atol=1e-5)

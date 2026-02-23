@@ -44,27 +44,9 @@ mutable struct RFFGP
         # Default prior and transform for σ. User can change them by calling `set_priortransform_on_σ!``
         tσ = PriorTransformation(Normal(0, 1), log)
         
-        𝓁, α = RandomFourierFeatures.spectral_weights(k)  # lengthscale, magnitude
-        outer_scaled = √(2 * α^2 / n_rff)
+        # Build RFF basis (supports both standard and generalized kernels via compat.jl)
         input_dims = 1  # input dimension is only time here
-
-        # Prior for random variables to construct random fourier features
-        p_τ = Uniform(0, 2π)
-        p_ω = RandomFourierFeatures.spectral_distribution(k, input_dims)  # a zero mean iso normal distribution
-        # NOTE: in RandomFourierFeatures.jl, the spectral distribution is a zero 
-        # mean iso normal distribution. Here, To caluculate the mapping from h and input,
-        # input is scaled by lengthscale.
-        # This makes same results as where the input is not scaled by lengthscale and
-        # the spectral distribution is N(0, 1/lengthscale^2 * I).
-
-        function sample_params()
-            ω = rand(p_ω, n_rff)  # frequencies
-            τ = rand(p_τ, n_rff)  # phases
-            return ω, τ
-        end
-
-        # construct random Fourier features
-        h = RFFBasis(𝓁, outer_scaled, sample_params()..., sample_params)
+        h = build_rff_basis(k, input_dims, n_rff)
         tϕ = [PriorTransformation(Normal(0, 1), log) for (i, ϕi) in enumerate(only_params(k))]
 
         # construct an approximated GP with random Fourier features

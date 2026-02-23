@@ -44,6 +44,7 @@ include("odegrad.jl")
 include("kernel/sigmoid.jl")
 include("models/gp.jl")
 include("models/rffgp.jl")
+include("compat.jl")
 include("gradmatch.jl")
 
 include("likelihood/gradmatch_logpdf.jl")
@@ -80,5 +81,7 @@ export optimize_ϕ_and_σ!, optimize_u!
 export initialize_vars!
 
 export SigmoidKernel
+
+export build_rff_basis, rff_approx_error
 
 end

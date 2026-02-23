@@ -1,8 +1,8 @@
 # RFFGradientMatching.jl
 
-[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://shu13830.github.io/RFFGradientMatching.jl/stable/)
-[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://shu13830.github.io/RFFGradientMatching.jl/dev/)
-[![Build Status](https://github.com/shu13830/RFFGradientMatching.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/shu13830/RFFGradientMatching.jl/actions/workflows/CI.yml?query=branch%3Amain)
+[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://anonymous-author.github.io/RFFGradientMatching.jl/stable/)
+[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://anonymous-author.github.io/RFFGradientMatching.jl/dev/)
+[![Build Status](https://github.com/anonymous-author/RFFGradientMatching.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/anonymous-author/RFFGradientMatching.jl/actions/workflows/CI.yml?query=branch%3Amain)
 
 
 ![Stable](https://img.shields.io/badge/status-stable-green) ![Julia](https://img.shields.io/badge/julia-v1.9%2B-blue)

@@ -5,10 +5,10 @@ DocMeta.setdocmeta!(RFFGradientMatching, :DocTestSetup, :(using RFFGradientMatch
 
 makedocs(;
     modules=[RFFGradientMatching],
-    authors="Shuichi Miyazawa",
+    authors="Anonymous",
     sitename="RFFGradientMatching.jl",
     format=Documenter.HTML(;
-        canonical="https://shu13830.github.io/RFFGradientMatching.jl",
+        canonical="https://anonymous-author.github.io/RFFGradientMatching.jl",
         edit_link="main",
         assets=String[],
     ),
@@ -18,6 +18,6 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/shu13830/RFFGradientMatching.jl",
+    repo="github.com/anonymous-author/RFFGradientMatching.jl",
     devbranch="main",
 )

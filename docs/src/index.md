@@ -4,7 +4,7 @@ CurrentModule = RFFGradientMatching
 
 # RFFGradientMatching
 
-Documentation for [RFFGradientMatching](https://github.com/shu13830/RFFGradientMatching.jl).
+Documentation for [RFFGradientMatching](https://github.com/anonymous-author/RFFGradientMatching.jl).
 
 ```@index
 ```

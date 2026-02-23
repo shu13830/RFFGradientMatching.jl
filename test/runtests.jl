@@ -34,6 +34,7 @@ import RFFGradientMatching:
     validate_∇tθ_logpdf_θ, validate_∇tθ_ulogpdf_e,
     validate_∇tγ_logpdf_γ, validate_∇tγ_ulogpdf_e,
     validate_∇tσ_logpdf_σ, validate_∇tσ_logpdf_y,
+    validate_∇tϕ_logpdf_ϕ, validate_∇tϕ_logpdf_x, validate_∇tϕ_logpdf_y, validate_∇tϕ_ulogpdf_e,
     validate_∇y_logpdf_y, validate_∇ulogpdf,
     # Sampler
     BlockedSamplerState
