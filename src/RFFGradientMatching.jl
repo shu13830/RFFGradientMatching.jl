@@ -26,7 +26,6 @@ using Optim
 using Plots
 using ProgressMeter
 using Random
-using RandomFourierFeatures
 using SpecialFunctions
 using StatsBase
 using StatsFuns
@@ -36,7 +35,8 @@ using UnPack
 using UnicodePlots
 
 import GPLikelihoods: AbstractLink
-import RandomFourierFeatures: RFFBasis, BasisFunctionRegressor, BayesianLinearRegressor
+import GeneralizedRFF: RFFBasis
+import BayesianLinearRegressors: BasisFunctionRegressor, BayesianLinearRegressor
 
 include("priortransformation.jl")
 include("ode.jl")

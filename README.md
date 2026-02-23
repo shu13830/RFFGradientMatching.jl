@@ -12,7 +12,7 @@
 * **Gaussian Process Gradient Matching** (GPGM)
 * **Random Fourier Features Gradient Matching** (RFGM)
 
-Leverages DifferentialEquations.jl, KernelFunctions.jl, AbstractGPs.jl, RandomFourierFeatures.jl, and a suite of MCMC samplers from AdvancedHMC.jl, AbstractMCMC.jl, and AdvancedMH.jl.
+Leverages DifferentialEquations.jl, KernelFunctions.jl, AbstractGPs.jl, GeneralizedRFF.jl, and a suite of MCMC samplers from AdvancedHMC.jl, AbstractMCMC.jl, and AdvancedMH.jl.
 
 ## Installation
 

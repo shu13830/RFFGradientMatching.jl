@@ -1,6 +1,4 @@
 @testset "T8: GeneralizedRFF integration" begin
-    import RandomFourierFeatures
-
     @testset "GeneralizedCauchy kernel evaluation" begin
         using GeneralizedRFF
         k = GeneralizedCauchyKernel(1.5, 1.5)
@@ -13,7 +11,7 @@
         Random.seed!(42)
         k = 1.0 * with_lengthscale(SqExponentialKernel(), 1.0)
         h = build_rff_basis(k, 1, 100)
-        @test h isa RandomFourierFeatures.RFFBasis
+        @test h isa GeneralizedRFF.RFFBasis
         @test size(h.ω) == (1, 100)
         @test h.inner_weights ≈ 1.0
     end
@@ -23,7 +21,7 @@
         Random.seed!(42)
         k = 1.0 * with_lengthscale(GeneralizedCauchyKernel(1.5, 1.5), 0.5)
         h = build_rff_basis(k, 1, 100)
-        @test h isa RandomFourierFeatures.RFFBasis
+        @test h isa GeneralizedRFF.RFFBasis
         @test size(h.ω) == (1, 100)
         @test h.inner_weights ≈ 0.5  # lengthscale
     end
@@ -33,7 +31,7 @@
         Random.seed!(42)
         k = 1.0 * with_lengthscale(ExponentialPowerKernel(γ=1.0), 1.0)
         h = build_rff_basis(k, 1, 100)
-        @test h isa RandomFourierFeatures.RFFBasis
+        @test h isa GeneralizedRFF.RFFBasis
         @test size(h.ω) == (1, 100)
     end
 
@@ -42,7 +40,7 @@
         Random.seed!(42)
         k = 1.0 * with_lengthscale(Matern52Kernel(), 1.0)
         h = build_rff_basis(k, 1, 100)
-        @test h isa RandomFourierFeatures.RFFBasis
+        @test h isa GeneralizedRFF.RFFBasis
         @test size(h.ω) == (1, 100)
     end
 

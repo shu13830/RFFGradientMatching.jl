@@ -18,21 +18,16 @@ kernel_inner(k::GeneralizedRFF.GeneralizedCauchyKernel, inner::AbstractVector{<:
 kernel_inner(k::GeneralizedRFF.GammaExponentialKernel, inner::AbstractVector{<:Real}) =
     with_lengthscale(GeneralizedRFF.GammaExponentialKernel(γ=only(k.γ)), inner[1])
 
-# Matern52Kernel: needs GenRFF path since RandomFourierFeatures.spectral_weights is unsupported.
+# Matern52Kernel: convert to MaternKernel(ν=2.5) for GeneralizedRFF compatibility.
 # Matern52Kernel already has params/kernel_inner/only_params in gp.jl, so no dispatch needed there.
 
-# ── Part B: Generalized kernel detection ─────────────────────────
-
-_is_generalized_kernel(::GeneralizedRFF.GeneralizedCauchyKernel) = true
-_is_generalized_kernel(::GeneralizedRFF.GammaExponentialKernel) = true
-_is_generalized_kernel(::Matern52Kernel) = true
-_is_generalized_kernel(::Any) = false
+# ── Part B: Base kernel conversion for GeneralizedRFF ─────────────
 
 # Convert kernel to a type that GeneralizedRFF.sample_generalized_rff_basis accepts
 _to_grff_base(k::GeneralizedRFF.GeneralizedCauchyKernel) = k
 _to_grff_base(k::GeneralizedRFF.GammaExponentialKernel) = k
 _to_grff_base(::Matern52Kernel) = KernelFunctions.MaternKernel(ν=2.5)
-_to_grff_base(k) = k
+_to_grff_base(k) = k  # SqExponentialKernel etc. pass through as-is
 
 # ── Part C: Unified RFF basis builder ────────────────────────────
 
@@ -41,30 +36,16 @@ _to_grff_base(k) = k
 
 Build an `RFFBasis` for any supported kernel (standard or generalized).
 Handles ScaledKernel/TransformedKernel wrapping to extract lengthscale and
-output scale, then delegates to the appropriate sampling backend.
-
-Standard kernels (SqExponentialKernel) use `RandomFourierFeatures.spectral_distribution`.
-Generalized kernels use `GeneralizedRFF.sample_generalized_rff_basis`.
+output scale, then delegates to `GeneralizedRFF.sample_generalized_rff_basis`.
 """
 function build_rff_basis(k::KernelFunctions.Kernel, input_dims::Int, n_rff::Int)
     base_k, inner, outer = params(k)
-
-    if _is_generalized_kernel(base_k)
-        grff_base = _to_grff_base(base_k)
-        h_raw = GeneralizedRFF.sample_generalized_rff_basis(
-            Random.default_rng(), grff_base, input_dims, n_rff)
-        ℓ = isa(inner, Tuple) ? inner[1] : inner
-        new_outer = outer * h_raw.outer_weights
-        return RFFBasis(ℓ, new_outer, h_raw.ω, h_raw.τ, h_raw.sample_params)
-    else
-        # Standard path (SqExponentialKernel)
-        𝓁, α = RandomFourierFeatures.spectral_weights(k)
-        outer_scaled = √(2 * α^2 / n_rff)
-        p_τ = Uniform(0, 2π)
-        p_ω = RandomFourierFeatures.spectral_distribution(k, input_dims)
-        sample_fn = () -> (rand(p_ω, n_rff), rand(p_τ, n_rff))
-        return RFFBasis(𝓁, outer_scaled, sample_fn()..., sample_fn)
-    end
+    grff_base = _to_grff_base(base_k)
+    h_raw = GeneralizedRFF.sample_generalized_rff_basis(
+        Random.default_rng(), grff_base, input_dims, n_rff)
+    ℓ = isa(inner, Tuple) ? inner[1] : inner
+    new_outer = outer * h_raw.outer_weights
+    return RFFBasis(ℓ, new_outer, h_raw.ω, h_raw.τ, h_raw.sample_params)
 end
 
 # ── Part D: RFF approximation error metric ───────────────────────
