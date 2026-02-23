@@ -222,7 +222,7 @@ function ∇y_logpdf_y(gp::Vector{GP}, Y_std::AbstractMatrix{<:Real}, X::Abstrac
     end
     return reduce(vcat, grads)
 end
-∇y_logpdf_y(gm::GPGM, Y_std::AbstractMatrix{<:Real}, X::AbstractMatrix{<:Real}, σ::AbstractVector{<:Real}) = ∇y_logpdf_y(gm.gp, Y_std, X, σ)
+∇y_logpdf_y(gm::Union{GPGM,MAGI}, Y_std::AbstractMatrix{<:Real}, X::AbstractMatrix{<:Real}, σ::AbstractVector{<:Real}) = ∇y_logpdf_y(gm.gp, Y_std, X, σ)
 
 function ∇y_logpdf_y(gp::Vector{RFFGP}, Y_std::AbstractMatrix{<:Real}, W::AbstractMatrix{<:Real}, σ::AbstractVector{<:Real})
     grads = []
@@ -239,7 +239,7 @@ end
 # TESTED
 ∇tx_logpdf_x(gp::Vector{GP}, X::AbstractMatrix{<:Real}) = 
     reduce(vcat, [gpk.L' * gradlogpdf(gpk.fz, xk) for (gpk, xk) in zip(gp, eachrow(X))])
-∇tx_logpdf_x(gm::GPGM, X::AbstractMatrix{<:Real}) = ∇tx_logpdf_x(gm.gp, X)
+∇tx_logpdf_x(gm::Union{GPGM,MAGI}, X::AbstractMatrix{<:Real}) = ∇tx_logpdf_x(gm.gp, X)
 
 # TESTED
 function ∇tx_logpdf_y(gp::Vector{GP}, Y_std::AbstractMatrix{<:Real}, X::AbstractMatrix{<:Real}, σ::AbstractVector{<:Real})
@@ -255,7 +255,7 @@ function ∇tx_logpdf_y(gp::Vector{GP}, Y_std::AbstractMatrix{<:Real}, X::Abstra
     end
     return reduce(vcat, grads)
 end
-∇tx_logpdf_y(gm::GPGM, Y_std::AbstractMatrix{<:Real}, X::AbstractMatrix{<:Real}, σ::AbstractVector{<:Real}) = ∇tx_logpdf_y(gm.gp, Y_std, X, σ)
+∇tx_logpdf_y(gm::Union{GPGM,MAGI}, Y_std::AbstractMatrix{<:Real}, X::AbstractMatrix{<:Real}, σ::AbstractVector{<:Real}) = ∇tx_logpdf_y(gm.gp, Y_std, X, σ)
 
 # TESTED
 function ∇tx_ulogpdf_e(
@@ -289,7 +289,7 @@ function ∇tx_ulogpdf_e(
     grads = reduce(vcat, ∇x_e)  # KN length Vector
     return grads
 end
-∇tx_ulogpdf_e(gm::GPGM, X::AbstractMatrix{<:Real}, θ::AbstractVector{<:Real}, γ::T) where {T<:Real} =
+∇tx_ulogpdf_e(gm::Union{GPGM,MAGI}, X::AbstractMatrix{<:Real}, θ::AbstractVector{<:Real}, γ::T) where {T<:Real} =
     ∇tx_ulogpdf_e(gm.odegrad, gm.gp, X, θ, γ)
 
 # --- w ---
@@ -373,7 +373,7 @@ function ∇tσ_logpdf_y(gp::Vector{GP}, Y_std::AbstractMatrix{<:Real}, X::Abstr
     end
     return reduce(vcat, grads)
 end
-∇tσ_logpdf_y(gm::GPGM, Y_std::AbstractMatrix{<:Real}, X::AbstractMatrix{<:Real}, σ::AbstractVector{<:Real}) =
+∇tσ_logpdf_y(gm::Union{GPGM,MAGI}, Y_std::AbstractMatrix{<:Real}, X::AbstractMatrix{<:Real}, σ::AbstractVector{<:Real}) =
     ∇tσ_logpdf_y(gm.gp, Y_std, X, σ)
 
 function ∇tσ_logpdf_y(gp::Vector{RFFGP}, Y_std::AbstractMatrix{<:Real}, W::AbstractMatrix{<:Real}, σ::AbstractVector{<:Real})
@@ -406,7 +406,7 @@ function ∇tσ_logpdf_σ(gp::Union{Vector{RFFGP},Vector{GP}}, σ::AbstractVecto
     end
     return grads
 end
-∇tσ_logpdf_σ(gm::Union{RFFGM,GPGM}, σ::AbstractVector{<:Real}, transformed_σ::AbstractVector{<:Real}) =
+∇tσ_logpdf_σ(gm::AbstractGM, σ::AbstractVector{<:Real}, transformed_σ::AbstractVector{<:Real}) =
     ∇tσ_logpdf_σ(gm.gp, σ, transformed_σ)
 
 # --- θ ---
@@ -420,7 +420,7 @@ function ∇tθ_logpdf_θ(odegrad::ODEGrad, θ::AbstractVector{<:Real}, transfor
     end
     return grads
 end
-∇tθ_logpdf_θ(gm::Union{RFFGM,GPGM}, θ::AbstractVector{<:Real}, transformed_θ::AbstractVector{<:Real}) =
+∇tθ_logpdf_θ(gm::AbstractGM, θ::AbstractVector{<:Real}, transformed_θ::AbstractVector{<:Real}) =
     ∇tθ_logpdf_θ(gm.odegrad, θ, transformed_θ)
 
 # TESTED
@@ -453,7 +453,7 @@ function ∇tθ_ulogpdf_e(
     end
     return ∇tθ_e
 end
-∇tθ_ulogpdf_e(gm::GPGM, X::AbstractMatrix{<:Real}, θ::AbstractVector{<:Real}, γ::T) where {T<:Real} =
+∇tθ_ulogpdf_e(gm::Union{GPGM,MAGI}, X::AbstractMatrix{<:Real}, θ::AbstractVector{<:Real}, γ::T) where {T<:Real} =
     ∇tθ_ulogpdf_e(gm.odegrad, gm.gp, X, θ, γ)
 
 # TESTED
@@ -494,7 +494,7 @@ end
 # TESTED
 ∇tγ_logpdf_γ(odegrad::ODEGrad, γ::T1, transformed_γ::T2) where {T1<:Real,T2<:Real} =
     [gradlogpdf(odegrad.tγ.prior, transformed_γ)]
-∇tγ_logpdf_γ(gm::Union{RFFGM,GPGM}, γ::T1, transformed_γ::T2) where {T1<:Real,T2<:Real} =
+∇tγ_logpdf_γ(gm::AbstractGM, γ::T1, transformed_γ::T2) where {T1<:Real,T2<:Real} =
     ∇tγ_logpdf_γ(gm.odegrad, γ, transformed_γ)
 
 function gradlogpdf_dΣ(dist::MvNormal, y::AbstractVector{<:Real})
@@ -527,7 +527,7 @@ function ∇tγ_ulogpdf_e(
     end
     return [sum(∇tγ_e)]
 end
-∇tγ_ulogpdf_e(gm::GPGM, X::AbstractMatrix{<:Real}, θ::AbstractVector{<:Real}, γ::T) where {T<:Real} =
+∇tγ_ulogpdf_e(gm::Union{GPGM,MAGI}, X::AbstractMatrix{<:Real}, θ::AbstractVector{<:Real}, γ::T) where {T<:Real} =
     ∇tγ_ulogpdf_e(gm.odegrad, gm.gp, X, θ, γ)
 
 # TESTED
@@ -608,7 +608,7 @@ function ∇tϕ_logpdf_ϕ(gp::Union{Vector{GP},Vector{RFFGP}}, ϕ::AbstractMatri
     end
     return reduce(vcat, grads)
 end
-∇tϕ_logpdf_ϕ(gm::Union{RFFGM,GPGM}, ϕ::AbstractMatrix{<:Real}) = ∇tϕ_logpdf_ϕ(gm.gp, ϕ)
+∇tϕ_logpdf_ϕ(gm::AbstractGM, ϕ::AbstractMatrix{<:Real}) = ∇tϕ_logpdf_ϕ(gm.gp, ϕ)
 
 # --- GPGM ϕ gradients (ForwardDiff-based) ---
 
@@ -634,7 +634,7 @@ function ∇tϕ_logpdf_x(gp::Vector{GP}, X::AbstractMatrix{<:Real}, ϕ::Abstract
     tϕ_current = Float64[calc_tvar(gp[k].tϕ[j], ϕ[j,k]) for j in 1:n_ϕ, k in 1:n_gp]
     return ForwardDiff.gradient(f, vec(tϕ_current))
 end
-∇tϕ_logpdf_x(gm::GPGM, X::AbstractMatrix{<:Real}, ϕ::AbstractMatrix{<:Real}) =
+∇tϕ_logpdf_x(gm::Union{GPGM,MAGI}, X::AbstractMatrix{<:Real}, ϕ::AbstractMatrix{<:Real}) =
     ∇tϕ_logpdf_x(gm.gp, X, ϕ)
 
 # Observation likelihood gradient w.r.t. transformed ϕ
@@ -678,7 +678,7 @@ function ∇tϕ_logpdf_y(
     tϕ_current = Float64[calc_tvar(gp[k].tϕ[j], ϕ[j,k]) for j in 1:n_ϕ, k in 1:n_gp]
     return ForwardDiff.gradient(f, vec(tϕ_current))
 end
-∇tϕ_logpdf_y(gm::GPGM, Y_std::AbstractMatrix{<:Real}, X::AbstractMatrix{<:Real},
+∇tϕ_logpdf_y(gm::Union{GPGM,MAGI}, Y_std::AbstractMatrix{<:Real}, X::AbstractMatrix{<:Real},
     σ::AbstractVector{<:Real}, ϕ::AbstractMatrix{<:Real}) =
     ∇tϕ_logpdf_y(gm.gp, Y_std, X, σ, ϕ)
 
@@ -728,7 +728,7 @@ function ∇tϕ_ulogpdf_e(
     tϕ_current = Float64[calc_tvar(gp[k].tϕ[j], ϕ[j,k]) for j in 1:n_ϕ, k in 1:n_gp]
     return ForwardDiff.gradient(f, vec(tϕ_current))
 end
-∇tϕ_ulogpdf_e(gm::GPGM, X::AbstractMatrix{<:Real}, θ::AbstractVector{<:Real},
+∇tϕ_ulogpdf_e(gm::Union{GPGM,MAGI}, X::AbstractMatrix{<:Real}, θ::AbstractVector{<:Real},
     γ::T, ϕ::AbstractMatrix{<:Real}) where {T<:Real} =
     ∇tϕ_ulogpdf_e(gm.odegrad, gm.gp, X, θ, γ, ϕ)
 

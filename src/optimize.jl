@@ -3,7 +3,7 @@ default_optimizer = LBFGS(;
     linesearch=Optim.LineSearches.BackTracking(),
 )
 
-function optimize_u!(gm::Union{RFFGM,GPGM}; maxiter::Int=1000, optimizer=default_optimizer)
+function optimize_u!(gm::AbstractGM; maxiter::Int=1000, optimizer=default_optimizer)
     
     options = Optim.Options(; iterations=maxiter, show_trace=false)
 
@@ -29,7 +29,7 @@ function optimize_u!(gm::Union{RFFGM,GPGM}; maxiter::Int=1000, optimizer=default
     end
 end
 
-function optimize_ϕ_and_σ!(gm::Union{RFFGM,GPGM}; maxiter::Int=1000, optimizer=default_optimizer)
+function optimize_ϕ_and_σ!(gm::AbstractGM; maxiter::Int=1000, optimizer=default_optimizer)
     
     options = Optim.Options(; iterations=maxiter, show_trace=false)
 

@@ -36,6 +36,8 @@ import RFFGradientMatching:
     validate_∇tσ_logpdf_σ, validate_∇tσ_logpdf_y,
     validate_∇tϕ_logpdf_ϕ, validate_∇tϕ_logpdf_x, validate_∇tϕ_logpdf_y, validate_∇tϕ_ulogpdf_e,
     validate_∇y_logpdf_y, validate_∇ulogpdf,
+    # AbstractGM
+    AbstractGM,
     # Sampler
     BlockedSamplerState
 
@@ -50,5 +52,6 @@ include("test_helpers.jl")
     include("test_gradient.jl")
     include("test_sampler.jl")
     include("test_e2e.jl")
+    include("test_magi.jl")
     include("test_generalized_rff.jl")
 end

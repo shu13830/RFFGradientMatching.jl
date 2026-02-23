@@ -81,7 +81,7 @@ Base.show(io::IO, blk::GESSBlock) = print(
     prior=$(typeof(blk.sampler.prior))
 )")
 
-function HMCBlock(mod::Union{RFFGM,GPGM},
+function HMCBlock(mod::AbstractGM,
     vars::Vector{Symbol}; 
     n_leapfrog::Int,
     step_size::Float64=0.1,
@@ -99,7 +99,7 @@ function HMCBlock(mod::Union{RFFGM,GPGM},
     HMCBlock(vars, hamiltonian, sampler, :HMC, D, 1, 0, 0)
 end
 
-function NUTSBlock(mod::Union{RFFGM,GPGM},
+function NUTSBlock(mod::AbstractGM,
     vars::Vector{Symbol};
     target_accept::Float64=0.65,
     metric::Symbol=:diag,  # {:diag, :dense, :unit}
@@ -123,7 +123,7 @@ function NUTSBlock(mod::Union{RFFGM,GPGM},
     HMCBlock(vars, hamiltonian, sampler, :NUTS, D, 1, 0, 0)
 end
 
-function HMCDABlock(mod::Union{RFFGM,GPGM},
+function HMCDABlock(mod::AbstractGM,
     vars::Vector{Symbol};
     λ::Float64,  # taregt trajectory length
     target_accept::Float64=0.65,
@@ -158,7 +158,7 @@ function init_metric(metric::Symbol, D::Int)
     return metric
 end
 
-function RWMHBlock(mod::Union{RFFGM,GPGM},
+function RWMHBlock(mod::AbstractGM,
     vars::Vector{Symbol};
     σ::Float64, 
     n_iter::Int=1
@@ -177,7 +177,7 @@ function RWMHBlock(mod::Union{RFFGM,GPGM},
     MHBlock(vars, model, sampler, D, n_iter)
 end
 
-function StaticMHBlock(mod::Union{RFFGM,GPGM},
+function StaticMHBlock(mod::AbstractGM,
     vars::Vector{Symbol};
     qdist::Union{Distribution,Vector{<:Distribution}},
     n_iter::Int=1
@@ -212,7 +212,7 @@ function StaticMHBlock(mod::Union{RFFGM,GPGM},
     MHBlock(vars, model, sampler, D, n_iter)
 end
 
-function ComponentWiseMHBlock(mod::Union{RFFGM,GPGM},
+function ComponentWiseMHBlock(mod::AbstractGM,
     vars::Vector{Symbol};
     σ::Union{Float64,Vector{Float64}},
     n_iter::Int=1
@@ -235,7 +235,7 @@ function ComponentWiseMHBlock(mod::Union{RFFGM,GPGM},
     ComponentWiseMHBlock(vars, model, sampler, D, n_iter)
 end
 
-function ESSBlock(mod::Union{RFFGM,GPGM},
+function ESSBlock(mod::AbstractGM,
     vars::Vector{Symbol};
     prior::MvNormal,
     n_iter::Int=1
@@ -254,7 +254,7 @@ function ESSBlock(mod::Union{RFFGM,GPGM},
     ESSBlock(vars, model, sampler, D, n_iter)
 end
 
-function GESSBlock(mod::Union{RFFGM,GPGM},
+function GESSBlock(mod::AbstractGM,
     vars::Vector{Symbol};
     prior::Union{MvTDist, Distributions.GenericMvTDist},
     n_iter::Int=1

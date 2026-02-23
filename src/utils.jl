@@ -1,10 +1,10 @@
 # Utility functions used in the sampling process ---
 # --- pack Dict style states ---
-function pack_param_dict(gm::Union{RFFGM,GPGM})
+function pack_param_dict(gm::AbstractGM)
     param_dict = Dict{Symbol,Any}()
     if gm isa RFFGM
         param_dict[:W] = get_W(gm)
-    elseif gm isa GPGM
+    else  # GPGM or MAGI
         param_dict[:X] = get_transformed_X(gm)
     end
     param_dict[:θ] = get_transformed_θ(gm)
@@ -15,7 +15,7 @@ function pack_param_dict(gm::Union{RFFGM,GPGM})
 end
 
 function update_param_dict_from_vec!(
-    param_dict::Dict{Symbol,Any}, mod::Union{RFFGM,GPGM},
+    param_dict::Dict{Symbol,Any}, mod::AbstractGM,
     param_vec::AbstractVector{<:Real},
     sample_target::Vector{Symbol}
 )
@@ -32,7 +32,7 @@ function update_param_dict_from_vec!(
 end
 
 
-function pack_param_vec_from_dict(gm::Union{RFFGM, GPGM},
+function pack_param_vec_from_dict(gm::AbstractGM,
     param_dict::Dict{Symbol,Any}, sample_target::Vector{Symbol}
 )
     param_vec = []
@@ -41,7 +41,7 @@ function pack_param_vec_from_dict(gm::Union{RFFGM, GPGM},
         if :W in sample_target && haskey(param_dict, :W)
             append!(param_vec, flatten_param(param_dict[:W] |> transpose))
         end
-    elseif gm isa GPGM
+    else  # GPGM or MAGI
         if :X in sample_target && haskey(param_dict, :X)
             append!(param_vec, flatten_param(param_dict[:X] |> transpose))
         end
@@ -64,10 +64,10 @@ function flatten_param(param)
     end
 end
 
-pack_param_vec(gm::Union{RFFGM,GPGM}, sample_target::Vector{Symbol}) =
+pack_param_vec(gm::AbstractGM, sample_target::Vector{Symbol}) =
     pack_param_vec_from_dict(gm, pack_param_dict(gm), sample_target)
 
-function pack_param_dict_from_vec(gm::Union{RFFGM,GPGM}, param_vec::AbstractVector{<:Real}, sample_target::Vector{Symbol})
+function pack_param_dict_from_vec(gm::AbstractGM, param_vec::AbstractVector{<:Real}, sample_target::Vector{Symbol})
     idx = 1
     param_dict = Dict{Symbol,Any}()
     param_dict[:Y] = get_Y(gm)
@@ -81,7 +81,7 @@ function pack_param_dict_from_vec(gm::Union{RFFGM,GPGM}, param_vec::AbstractVect
         else
             param_dict[:W] = get_W(gm)
         end
-    elseif gm isa GPGM
+    else  # GPGM or MAGI
         if :X in sample_target
             n_X = length(get_X(gm))
             transformed_X = reshape(param_vec[idx:idx + n_X - 1], :, length(gm.gp))' |> Matrix
@@ -130,7 +130,7 @@ function pack_param_dict_from_vec(gm::Union{RFFGM,GPGM}, param_vec::AbstractVect
 end
 
 function update_model_with_dict!(
-    gm::Union{RFFGM,GPGM},
+    gm::AbstractGM,
     sample_target::Vector{Symbol},
     new_param_dict::Dict{Symbol,Any}
 )
@@ -157,20 +157,20 @@ function update_model_with_dict!(
     end
 end
 
-function update_model_with_vec!(gm::Union{RFFGM,GPGM},
+function update_model_with_vec!(gm::AbstractGM,
     sample_target::Vector{Symbol}, new_param_vec::AbstractVector{<:Real}
 )
     param_dict = pack_param_dict_from_vec(gm, new_param_vec, sample_target)
     update_model_with_dict!(gm, sample_target, param_dict)
 end
 
-function update_Y!(gm::Union{RFFGM,GPGM}, Y::AbstractMatrix{<:Real})
+function update_Y!(gm::AbstractGM, Y::AbstractMatrix{<:Real})
     for (gpk, yk) in zip(gm.gp, eachrow(Y))
         update_y!(gpk, yk[:])
     end
 end
 
-function update_X!(gm::GPGM, transformed_X::AbstractMatrix{<:Real})
+function update_X!(gm::Union{GPGM,MAGI}, transformed_X::AbstractMatrix{<:Real})
     X = calc_X(gm.gp, transformed_X)
     gm.odegrad.X = X
     for (gpk, xk) in zip(gm.gp, eachrow(X))
@@ -186,21 +186,21 @@ function update_W!(gm::RFFGM, W::AbstractMatrix{<:Real})
     end
 end
 
-function update_θ!(gm::Union{RFFGM,GPGM}, transformed_θ::AbstractVector{<:Real})
+function update_θ!(gm::AbstractGM, transformed_θ::AbstractVector{<:Real})
     gm.odegrad.θ[:] = calc_θ(gm.odegrad, transformed_θ)
 end
 
-function update_γ!(gm::Union{RFFGM,GPGM}, transformed_γ::T) where {T<:Real}
+function update_γ!(gm::AbstractGM, transformed_γ::T) where {T<:Real}
     gm.odegrad.γ = calc_var(gm.odegrad.tγ, transformed_γ)
 end
 
-function update_σ!(gm::Union{RFFGM,GPGM}, transformed_σ::AbstractVector{<:Real})
+function update_σ!(gm::AbstractGM, transformed_σ::AbstractVector{<:Real})
     for (gpk, σk) in zip(gm.gp, calc_σ(gm.gp, transformed_σ))
         gpk.σ = σk
     end
 end
 
-function update_ϕ!(gm::Union{RFFGM,GPGM}, transformed_ϕ::AbstractMatrix{<:Real})
+function update_ϕ!(gm::AbstractGM, transformed_ϕ::AbstractMatrix{<:Real})
     new_ϕ = calc_ϕ(gm.gp, transformed_ϕ)
     for (k, (gpk, ϕk)) in enumerate(zip(gm.gp, eachcol(new_ϕ)))
         gm.gp[k] = reconstruct_gp(gpk; ϕ=ϕk[:])
@@ -209,21 +209,21 @@ end
 
 # --- extract parameters from a chain ---
 
-function get_θ(gm::Union{RFFGM,GPGM}, chain::AbstractVector)
+function get_θ(gm::AbstractGM, chain::AbstractVector)
     θ_samples = [calc_θ(gm.odegrad, c[:θ]) for c in chain]
     return reduce(hcat, θ_samples)'
 end
 
-function get_γ(gm::Union{RFFGM,GPGM}, chain::AbstractVector)
+function get_γ(gm::AbstractGM, chain::AbstractVector)
     return [calc_var(gm.odegrad.tγ, c[:γ]) for c in chain]
 end
 
-function get_σ(gm::Union{RFFGM,GPGM}, chain::AbstractVector)
+function get_σ(gm::AbstractGM, chain::AbstractVector)
     σ_samples = [calc_σ(gm.gp, c[:σ]) for c in chain]
     return reduce(hcat, σ_samples)'
 end
 
-function get_ϕ(gm::Union{RFFGM,GPGM}, chain::AbstractVector)
+function get_ϕ(gm::AbstractGM, chain::AbstractVector)
     ϕ_samples = [calc_ϕ(gm.gp, c[:ϕ]) for c in chain]
     n_samples = length(ϕ_samples)
     n_params, n_gp = size(ϕ_samples[1])
@@ -234,7 +234,7 @@ function get_ϕ(gm::Union{RFFGM,GPGM}, chain::AbstractVector)
     return arr
 end
 
-function get_X(gm::GPGM, chain::AbstractVector)
+function get_X(gm::Union{GPGM,MAGI}, chain::AbstractVector)
     X_samples = [calc_X(gm.gp, c[:X]) for c in chain]
     n_samples = length(X_samples)
     n_gp, n_t = size(X_samples[1])
@@ -256,11 +256,11 @@ function get_W(gm::RFFGM, chain::AbstractVector)
     return arr
 end
 
-function get_logdensity(gm::Union{RFFGM,GPGM}, chain::AbstractVector)
+function get_logdensity(gm::AbstractGM, chain::AbstractVector)
     logdensities = [c[:logdens] |> values |> sum for c in chain]
     return logdensities
 end
-function get_logdensity(gm::Union{RFFGM,GPGM}, chain::AbstractVector, symbol::Symbol)
+function get_logdensity(gm::AbstractGM, chain::AbstractVector, symbol::Symbol)
     logdensities = [c[:logdens][symbol] for c in chain]
     return logdensities
 end

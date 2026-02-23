@@ -30,7 +30,7 @@ function choose_sampleblock(blocks::BlockedSampler)
 end
 
 function AbstractMCMC.step(rng::AbstractRNG,
-    model::Union{GPGM, RFFGM},
+    model::AbstractGM,
     sampler::BlockedSampler,
     state::BlockedSamplerState,
     burnin::Bool
@@ -72,7 +72,7 @@ function AbstractMCMC.step(rng::AbstractRNG,
 end
 
 AbstractMCMC.step(
-    model::Union{GPGM, RFFGM},
+    model::AbstractGM,
     sampler::BlockedSampler,
     state::BlockedSamplerState,
     burnin::Bool
@@ -80,7 +80,7 @@ AbstractMCMC.step(
 
 function AbstractMCMC.sample(
     rng::AbstractRNG,
-    model::Union{GPGM, RFFGM},
+    model::AbstractGM,
     sampler::BlockedSampler,
     num_samples::Int;
     init_params::Dict{Symbol, Any},
@@ -116,7 +116,7 @@ function AbstractMCMC.sample(
 end
 
 function AbstractMCMC.sample(
-    model::Union{GPGM, RFFGM},
+    model::AbstractGM,
     sampler::BlockedSampler,
     num_samples::Int;
     init_params::Union{Nothing,Dict{Symbol, Any}}=nothing,
@@ -132,7 +132,7 @@ function AbstractMCMC.sample(
         init_params=init_params, num_burnin=num_burnin, chain_type=chain_type, anneal=anneal)
 end
 
-function anneal_gm_callback(rng, model::Union{RFFGM,GPGM}, sampler, sample, iteration)
+function anneal_gm_callback(rng, model::AbstractGM, sampler, sample, iteration)
     # update the inverse temperature β
     if model.anneal_iter[1] < model.anneal_length
         @info "Annealing Gradient Matching term: iteration $(model.anneal_iter[1]) / $(model.anneal_length)"
@@ -145,6 +145,6 @@ function anneal_gm_callback(rng, model::Union{RFFGM,GPGM}, sampler, sample, iter
     end
 end
 
-function get_anneal_length(model::Union{RFFGM,GPGM})
+function get_anneal_length(model::AbstractGM)
     return model.anneal_length
 end

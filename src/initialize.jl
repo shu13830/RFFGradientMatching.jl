@@ -34,7 +34,7 @@ function only_var_set(sampler::BlockedSampler, vars::Vector{Symbol})
     filter_sampler(sampler, blk -> sort(blk.vars) == sort(vars))
 end
 
-function _get_gm(model::Union{RFFGM,GPGM})
+function _get_gm(model::AbstractGM)
     model
 end
 
@@ -56,9 +56,10 @@ function initialize_vars!(rng::AbstractRNG, model,
     gm = _get_gm(model)
     is_rffgm = gm isa RFFGM
     is_gpgm = gm isa GPGM
+    is_magi = gm isa MAGI
 
     # Check existence of blocks for θ and X/W for phase 2
-    if is_gpgm
+    if is_gpgm || is_magi
         samp_θ = only_var_set(sampler, [:X, :θ])
         if samp_θ === nothing
             error("No block found that contains both :X and :θ")

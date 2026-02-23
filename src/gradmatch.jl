@@ -80,7 +80,7 @@ struct GPGM <: AbstractGM
     end
 
     function GPGM(
-        times::Vector{Float64}, obs::Matrix{Float64}, prob::ODEProblem, probname::String; 
+        times::Vector{Float64}, obs::Matrix{Float64}, prob::ODEProblem, probname::String;
         k::KernelFunctions.Kernel,
         state_noise_std::Float64,
         obs_noise_std::Float64,
@@ -118,8 +118,71 @@ Base.show(io::IO, gm::GPGM) = print(io, "Gaussian Process-based Gradient Matchin
     Regressor: Gaussian Process
 ")
 
+struct MAGI <: AbstractGM
+    odegrad::ODEGrad
+    gp::Vector{GP}
+    β::Vector{Float64}
+    β_schedule::Vector{Float64}
+    anneal_length::Int
+    anneal_iter::Vector{Int}
+    γ_jitter::Float64  # fixed small jitter for numerical stability (replaces γ)
+
+    function MAGI(odegrad::ODEGrad, gp::Vector{GP}, anneal_length::Int;
+                  γ_jitter::Float64=1e-3)
+        if anneal_length <= 1
+            β_schedule = [1.0]
+            β = [1.0]
+            anneal_iter = [1]
+        else
+            β_schedule = collect(0:1/anneal_length:1)[2:end]
+            β = [β_schedule[1]]
+            anneal_iter = [1]
+        end
+        new(odegrad, gp, β, β_schedule, anneal_length, anneal_iter, γ_jitter)
+    end
+
+    function MAGI(
+        times::Vector{Float64}, obs::Matrix{Float64}, prob::ODEProblem, probname::String;
+        k::KernelFunctions.Kernel,
+        state_noise_std::Float64,
+        obs_noise_std::Float64,
+        inducing_points::Union{Nothing, Vector{Float64}}=nothing,
+        standardize::Bool=false,
+        centralize::Bool=false,
+        anneal_length::Int=1,
+        γ_jitter::Float64=1e-3
+    )
+        @assert length(times) == size(obs, 2)
+        n_gps = size(obs, 1)
+
+        odegrad = ODEGrad(obs, prob, probname)
+        if isnothing(inducing_points)
+            gp = [
+                GP(times, deepcopy(obs[i,:]), times, obs[i,:], state_noise_std, obs_noise_std;
+                    k=k, standardize=standardize, centralize=centralize)
+                for i in 1:n_gps
+            ]
+        else
+            gp = [
+                GP(inducing_points, zeros(length(inducing_points)), times, obs[i,:], state_noise_std, obs_noise_std;
+                    k=k, standardize=standardize, centralize=centralize)
+                for i in 1:n_gps
+            ]
+        end
+
+        MAGI(odegrad, gp, anneal_length; γ_jitter=γ_jitter)
+    end
+end
+
+Base.show(io::IO, gm::MAGI) = print(io, "MAGI (Manifold-constrained GP Inference)
+    ODE problem: $(gm.odegrad.functions.probname)
+    #states in the ODE: $(length(gm.gp))
+    #ODE parameters: $(gm.odegrad.θ |> length)
+    γ_jitter: $(gm.γ_jitter)
+")
+
 function set_priortransform_on_θ!(
-    gm::Union{RFFGM,GPGM},
+    gm::AbstractGM,
     priors::Vector{<:Distributions.Distribution},
     transforms::Vector{<:Union{Function, Bijectors.Transform}}
 )
@@ -140,7 +203,7 @@ function set_priortransform_on_θ!(
 end
 
 function set_priortransform_on_γ!(
-    gm::Union{RFFGM,GPGM},
+    gm::AbstractGM,
     prior::Distributions.Distribution,
     transform::Union{Function, Bijectors.Transform}
 )
@@ -148,7 +211,7 @@ function set_priortransform_on_γ!(
 end
 
 function set_priortransform_on_σ!(
-    gm::Union{RFFGM,GPGM},
+    gm::AbstractGM,
     priors::Vector{Tprior},
     transforms::Vector{Ttransform}
 ) where {Tprior<:Distributions.Distribution, Ttransform<:Union{Function, Bijectors.Transform}}
@@ -157,7 +220,7 @@ function set_priortransform_on_σ!(
     end
 end
 function set_priortransform_on_σ!(
-    gm::Union{RFFGM,GPGM},
+    gm::AbstractGM,
     prior::Tprior,
     transform::Union{Function, Bijectors.Transform}
 ) where {Tprior<:Distributions.Distribution}
@@ -166,7 +229,7 @@ end
 
 
 function set_priortransform_on_ϕ!(
-    gm::GPGM,
+    gm::Union{GPGM,MAGI},
     priors::Vector{Tprior},
     transforms::Vector{Ttransform}
 ) where {
@@ -189,17 +252,17 @@ function set_priortransform_on_ϕ!(
     end
 end
 
-get_standardized_Y(gm::Union{RFFGM,GPGM}) = vcat([gp.y_standardized' for gp in gm.gp]...)
-get_Y(gm::Union{RFFGM,GPGM}) = vcat([gp.y' for gp in gm.gp]...)
-get_X(gm::GPGM) = vcat([gp.u' for gp in gm.gp]...)
-get_transformed_X(gm::GPGM) = vcat([(gp.L⁻¹ * gp.u)' for gp in gm.gp]...)
-get_destandardized_X(gm::GPGM) = gm.odegrad.X
+get_standardized_Y(gm::AbstractGM) = vcat([gp.y_standardized' for gp in gm.gp]...)
+get_Y(gm::AbstractGM) = vcat([gp.y' for gp in gm.gp]...)
+get_X(gm::Union{GPGM,MAGI}) = vcat([gp.u' for gp in gm.gp]...)
+get_transformed_X(gm::Union{GPGM,MAGI}) = vcat([(gp.L⁻¹ * gp.u)' for gp in gm.gp]...)
+get_destandardized_X(gm::Union{GPGM,MAGI}) = gm.odegrad.X
 get_X(gm::RFFGM) = W2X(gm.gp, get_W(gm))
 get_W(gm::RFFGM) = reduce(vcat, [gpk.w' for gpk in gm.gp])
-get_θ(gm::Union{RFFGM,GPGM}) = gm.odegrad.θ
-get_γ(gm::Union{RFFGM,GPGM}) = gm.odegrad.γ
-get_σ(gm::Union{RFFGM,GPGM}) = [gp.σ for gp in gm.gp]
-get_ϕ(gm::Union{RFFGM,GPGM}) = reduce(hcat, [only_params(gp.k) for gp in gm.gp])  # n(params) × n(gp)
+get_θ(gm::AbstractGM) = gm.odegrad.θ
+get_γ(gm::AbstractGM) = gm.odegrad.γ
+get_σ(gm::AbstractGM) = [gp.σ for gp in gm.gp]
+get_ϕ(gm::AbstractGM) = reduce(hcat, [only_params(gp.k) for gp in gm.gp])  # n(params) × n(gp)
 get_y_std(gp::Union{Vector{GP},Vector{RFFGP}}) = [gpk.y_std for gpk in gp]
 
 function calc_standardized_Y(gp::Union{Vector{GP},Vector{RFFGP}}, Y::AbstractMatrix{<:Real})
@@ -210,25 +273,25 @@ function calc_destandardized_X(gp::Union{Vector{GP},Vector{RFFGP}}, X::AbstractM
     hcat([(X[k,:] .* gpk.y_std) .+ gpk.y_mean for (k, gpk) in enumerate(gp)]...)' |> Matrix
 end
 
-get_transformed_θ(gm::Union{RFFGM,GPGM}) = try
+get_transformed_θ(gm::AbstractGM) = try
     calc_tvar(gm.odegrad.tθ, gm.odegrad.θ)
 catch UndefRefError
     error("Prior transformation on θ is not set.")
 end
 
-get_transformed_γ(gm::Union{RFFGM,GPGM}) = try
+get_transformed_γ(gm::AbstractGM) = try
     calc_tvar(gm.odegrad.tγ, gm.odegrad.γ)
 catch UndefRefError
     error("Prior transformation on γ is not set.")
 end
 
-get_transformed_σ(gm::Union{RFFGM,GPGM}) = try
+get_transformed_σ(gm::AbstractGM) = try
     [calc_tvar(gp.tσ, gp.σ) for gp in gm.gp]
 catch UndefRefError
     error("Prior transformation on σ is not set.")
 end
 
-get_transformed_ϕ(gm::Union{RFFGM,GPGM}) = try 
+get_transformed_ϕ(gm::AbstractGM) = try
     reduce(hcat, [[calc_tvar(tϕi, ϕi) for (tϕi, ϕi) in zip(gp.tϕ, only_params(gp.k))] for gp in gm.gp])
 catch UndefRefError
     error("Prior transformation on ϕ is not set.")
@@ -271,8 +334,5 @@ function calc_ϕ(gp::Union{Vector{GP},Vector{RFFGP}}, transformed_ϕ::AbstractMa
     return ϕ
 end
 
-dfdt_mean(rffgm::RFFGM) = [dfdt_mean(gp) for gp in rffgm.gp]
-dfdt_mean(gpgm::GPGM) = [dfdt_mean(gp) for gp in gpgm.gp]
-
-dfdt_cov(rffgm::RFFGM) = [dfdt_cov(gp) for gp in rffgm.gp]
-dfdt_cov(gpgm::GPGM) = [dfdt_cov(gp) for gp in gpgm.gp]
+dfdt_mean(gm::AbstractGM) = [dfdt_mean(gp) for gp in gm.gp]
+dfdt_cov(gm::AbstractGM) = [dfdt_cov(gp) for gp in gm.gp]

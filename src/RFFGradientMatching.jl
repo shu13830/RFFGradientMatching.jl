@@ -49,6 +49,8 @@ include("gradmatch.jl")
 
 include("likelihood/gradmatch_logpdf.jl")
 include("likelihood/gradmatch_gradlogpdf.jl")
+include("likelihood/magi_logpdf.jl")
+include("likelihood/magi_gradlogpdf.jl")
 
 include("sampler/gess/abstractmcmc.jl")
 include("sampler/compwisemh/abstractmcmc.jl")
@@ -64,7 +66,7 @@ include("initialize.jl")
 
 export PriorTransformation
 
-export RFFGM, GPGM, RFFGP, GP
+export RFFGM, GPGM, MAGI, RFFGP, GP
 export ODEGrad, ODEGradFuns
 export set_priortransform_on_θ!, set_priortransform_on_σ!, set_priortransform_on_ϕ!, set_priortransform_on_γ!
 export get_θ, get_σ, get_X, get_W, get_γ, get_ϕ
