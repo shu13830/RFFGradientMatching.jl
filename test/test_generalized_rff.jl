@@ -1,6 +1,6 @@
-@testset "T8: GeneralizedRFF integration" begin
+@testset "T8: GeneralizedRandomFourierFeatures integration" begin
     @testset "GeneralizedCauchy kernel evaluation" begin
-        using GeneralizedRFF
+        using GeneralizedRandomFourierFeatures
         k = GeneralizedCauchyKernel(1.5, 1.5)
         @test k(0.0, 0.0) > 0
         @test k(0.0, 1.0) >= 0
@@ -11,27 +11,27 @@
         Random.seed!(42)
         k = 1.0 * with_lengthscale(SqExponentialKernel(), 1.0)
         h = build_rff_basis(k, 1, 100)
-        @test h isa GeneralizedRFF.RFFBasis
+        @test h isa GeneralizedRandomFourierFeatures.RFFBasis
         @test size(h.ω) == (1, 100)
         @test h.inner_weights ≈ 1.0
     end
 
     @testset "build_rff_basis with GeneralizedCauchyKernel" begin
-        using Random, GeneralizedRFF
+        using Random, GeneralizedRandomFourierFeatures
         Random.seed!(42)
         k = 1.0 * with_lengthscale(GeneralizedCauchyKernel(1.5, 1.5), 0.5)
         h = build_rff_basis(k, 1, 100)
-        @test h isa GeneralizedRFF.RFFBasis
+        @test h isa GeneralizedRandomFourierFeatures.RFFBasis
         @test size(h.ω) == (1, 100)
         @test h.inner_weights ≈ 0.5  # lengthscale
     end
 
     @testset "build_rff_basis with ExponentialPowerKernel" begin
-        using Random, GeneralizedRFF
+        using Random, GeneralizedRandomFourierFeatures
         Random.seed!(42)
         k = 1.0 * with_lengthscale(ExponentialPowerKernel(γ=1.0), 1.0)
         h = build_rff_basis(k, 1, 100)
-        @test h isa GeneralizedRFF.RFFBasis
+        @test h isa GeneralizedRandomFourierFeatures.RFFBasis
         @test size(h.ω) == (1, 100)
     end
 
@@ -40,12 +40,12 @@
         Random.seed!(42)
         k = 1.0 * with_lengthscale(Matern52Kernel(), 1.0)
         h = build_rff_basis(k, 1, 100)
-        @test h isa GeneralizedRFF.RFFBasis
+        @test h isa GeneralizedRandomFourierFeatures.RFFBasis
         @test size(h.ω) == (1, 100)
     end
 
     @testset "RFFGM with GeneralizedCauchyKernel" begin
-        using Random, GeneralizedRFF
+        using Random, GeneralizedRandomFourierFeatures
         Random.seed!(42)
         import RFFGradientMatching: lotkavolterrapredatorprey!
         times = collect(range(0.0, 2.0, length=10))

@@ -35,11 +35,6 @@ jobs:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
       - uses: julia-actions/cache@v2
-      - name: Add unregistered dependencies
-        shell: julia --project=. --color=yes {0}
-        run: |
-          using Pkg
-          Pkg.add(url="https://github.com/shu13830/GeneralizedRFF.jl")
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
   docs:
@@ -55,11 +50,6 @@ jobs:
         with:
           version: '1.10'
       - uses: julia-actions/cache@v2
-      - name: Add unregistered dependencies
-        shell: julia --project=. --color=yes {0}
-        run: |
-          using Pkg
-          Pkg.add(url="https://github.com/shu13830/GeneralizedRFF.jl")
       - name: Configure doc environment
         shell: julia --project=docs --color=yes {0}
         run: |

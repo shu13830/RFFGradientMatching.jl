@@ -13,7 +13,7 @@ using RFFGradientMatching
 using AbstractMCMC, MCMCChains, MCMCDiagnosticTools
 using CSV, DataFrames
 using ArgParse
-using GeneralizedRFF
+using GeneralizedRandomFourierFeatures
 
 import RFFGradientMatching:
     lotkavolterrapredatorprey!, lotkavolterracompetition!,

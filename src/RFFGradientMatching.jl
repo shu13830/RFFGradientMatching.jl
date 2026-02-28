@@ -13,7 +13,7 @@ using Distributions
 using EllipticalSliceSampling
 using FillArrays
 using ForwardDiff
-using GeneralizedRFF
+using GeneralizedRandomFourierFeatures
 using GPLikelihoods
 using HypergeometricFunctions
 using KernelFunctions
@@ -35,7 +35,7 @@ using UnPack
 using UnicodePlots
 
 import GPLikelihoods: AbstractLink
-import GeneralizedRFF: RFFBasis
+import GeneralizedRandomFourierFeatures: RFFBasis
 import BayesianLinearRegressors: BasisFunctionRegressor, BayesianLinearRegressor
 
 include("priortransformation.jl")
