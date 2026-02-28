@@ -6,8 +6,12 @@ mutable struct HMCBlock <: AbstractSampleBlock
     type::Symbol
     D::Int
     n::Int
-    accept_counter::Int
-    reject_counter::Int
+    # R MAGI-style adaptation state
+    accept_history::Vector{Bool}              # rolling acceptance history (last ≤100)
+    step_low::Float64                          # base step size (R MAGI stepLow)
+    sample_history::Vector{Vector{Float64}}   # buffer for M⁻¹ adaptation
+    adapt_interval::Int                        # M⁻¹ adaptation interval
+    iter_counter::Int                          # iterations since last M⁻¹ adaptation
 end
 
 """Sample Block for Metropolis-Hastings"""
@@ -50,9 +54,8 @@ Base.show(io::IO, blk::HMCBlock) = print(
     D=$(blk.D),
     n=$(blk.n),
     vars=$(blk.vars),
+    step_low=$(blk.step_low),
     metric=$(blk.h.metric),
-    kinetic=$(blk.h.kinetic),
-    adaptor=$(blk.sampler.adaptor),
     integrator=$(blk.sampler.κ.τ.integrator),
     termination_criterion=$(blk.sampler.κ.τ.termination_criterion),
 )")
@@ -82,10 +85,11 @@ Base.show(io::IO, blk::GESSBlock) = print(
 )")
 
 function HMCBlock(mod::AbstractGM,
-    vars::Vector{Symbol}; 
+    vars::Vector{Symbol};
     n_leapfrog::Int,
     step_size::Float64=0.1,
     metric::Symbol=:diag,  # {:diag, :dense, :unit}
+    adapt_interval::Int=10,
 )
     ℓπ = (p) -> ulogpdf(p, mod, vars)
     ∂ℓπ∂θ = (p) -> (ℓπ(p), ∇ulogpdf(p, mod, vars))
@@ -96,7 +100,8 @@ function HMCBlock(mod::AbstractGM,
     adaptor = AdvancedHMC.NoAdaptation()
     kernel = AdvancedHMC.HMCKernel(AdvancedHMC.Trajectory{EndPointTS}(integrator, AdvancedHMC.FixedNSteps(n_leapfrog)))
     sampler = AdvancedHMC.HMCSampler(kernel, metric, adaptor)
-    HMCBlock(vars, hamiltonian, sampler, :HMC, D, 1, 0, 0)
+    HMCBlock(vars, hamiltonian, sampler, :HMC, D, 1,
+             Bool[], step_size, Vector{Float64}[], adapt_interval, 0)
 end
 
 function NUTSBlock(mod::AbstractGM,
@@ -120,7 +125,8 @@ function NUTSBlock(mod::AbstractGM,
         StanHMCAdaptor(MassMatrixAdaptor(metric), StepSizeAdaptor(target_accept, integrator)) : adoptor
     kernel =  HMCKernel(Trajectory{MultinomialTS}(integrator, GeneralisedNoUTurn()))
     sampler = HMCSampler(kernel, metric, adaptor)
-    HMCBlock(vars, hamiltonian, sampler, :NUTS, D, 1, 0, 0)
+    HMCBlock(vars, hamiltonian, sampler, :NUTS, D, 1,
+             Bool[], initial_ϵ, Vector{Float64}[], 10, 0)
 end
 
 function HMCDABlock(mod::AbstractGM,
@@ -142,7 +148,8 @@ function HMCDABlock(mod::AbstractGM,
     adaptor = StepSizeAdaptor(target_accept, initial_ϵ)
     kernel = HMCKernel(Trajectory{EndPointTS}(integrator, FixedIntegrationTime(λ)))
     sampler = HMCSampler(kernel, metric, adaptor)
-    HMCBlock(vars, hamiltonian, sampler, :HMCDA, D, 1, 0, 0)
+    HMCBlock(vars, hamiltonian, sampler, :HMCDA, D, 1,
+             Bool[], initial_ϵ, Vector{Float64}[], 10, 0)
 end
 
 function init_metric(metric::Symbol, D::Int)

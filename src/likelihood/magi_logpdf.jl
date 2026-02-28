@@ -1,6 +1,6 @@
 # MAGI log-posterior density
-# MAGI = GPGM with fixed γ (no gradient matching noise parameter)
-# ODE constraint uses γ_jitter for numerical stability
+# γ is stored in odegrad.γ (shared with GPGM/RFFGM)
+# When :γ is in sample_target, γ is sampled; otherwise stays at initial value
 
 # --- MAGI-specific logpdf dispatches ---
 logpdf_x(gm::MAGI, X::AbstractMatrix{<:Real}, ϕ::AbstractMatrix{<:Real}) = logpdf_x(reconstruct_gp(gm.gp, ϕ=ϕ), X)
@@ -18,16 +18,21 @@ logpdf_y(gm::MAGI) = logpdf_y(gm, get_standardized_Y(gm), get_X(gm), get_σ(gm))
 logpdf_θ(gm::MAGI, θ::AbstractVector{<:Real}) = logpdf_θ(gm.odegrad, θ)
 logpdf_θ(gm::MAGI) = logpdf_θ(gm, get_θ(gm))
 
+logpdf_γ(gm::MAGI, γ::Real) = logpdf_γ(gm.odegrad, γ)
+logpdf_γ(gm::MAGI) = logpdf_γ(gm, get_γ(gm))
+
 logpdf_σ(gm::MAGI, σ::AbstractVector{<:Real}) = logpdf_σ(gm.gp, σ)
 logpdf_σ(gm::MAGI) = logpdf_σ(gm, get_σ(gm))
 
 logpdf_ϕ(gm::MAGI, ϕ::AbstractMatrix{<:Real}) = logpdf_ϕ(gm.gp, ϕ)
 logpdf_ϕ(gm::MAGI) = logpdf_ϕ(gm, get_ϕ(gm))
 
-# MAGI ODE constraint: ulogpdf_e with fixed γ_jitter
+# MAGI ODE constraint: ulogpdf_e using odegrad.γ (same as GPGM)
+ulogpdf_e(gm::MAGI, X::AbstractMatrix{<:Real}, θ::AbstractVector{<:Real}, γ::Real) =
+    ulogpdf_e(gm.odegrad, gm.gp, X, θ, γ)
 ulogpdf_e(gm::MAGI, X::AbstractMatrix{<:Real}, θ::AbstractVector{<:Real}) =
-    ulogpdf_e(gm.odegrad, gm.gp, X, θ, gm.γ_jitter)
-ulogpdf_e(gm::MAGI) = ulogpdf_e(gm, get_X(gm), get_θ(gm))
+    ulogpdf_e(gm, X, θ, get_γ(gm))
+ulogpdf_e(gm::MAGI) = ulogpdf_e(gm, get_X(gm), get_θ(gm), get_γ(gm))
 
 # --- Main ulogpdf ---
 function ulogpdf(gm::MAGI, param_dict::Dict{Symbol,Any};
@@ -36,6 +41,7 @@ function ulogpdf(gm::MAGI, param_dict::Dict{Symbol,Any};
 )
     transformed_X = param_dict[:X]
     transformed_θ = param_dict[:θ]
+    transformed_γ = param_dict[:γ]
     transformed_σ = param_dict[:σ]
     transformed_ϕ = param_dict[:ϕ]
 
@@ -43,12 +49,14 @@ function ulogpdf(gm::MAGI, param_dict::Dict{Symbol,Any};
         Y_std = get_standardized_Y(gm)
         X = get_X(gm)
         θ = get_θ(gm)
+        γ = get_γ(gm)
         σ = get_σ(gm)
         ϕ = get_ϕ(gm)
     else
         Y_std = get_standardized_Y(gm)
         X = :X in sample_target ? calc_X(gm.gp, transformed_X) : get_X(gm)
         θ = :θ in sample_target ? calc_θ(gm.odegrad, transformed_θ) : get_θ(gm)
+        γ = :γ in sample_target ? calc_var(gm.odegrad.tγ, transformed_γ) : get_γ(gm)
         σ = :σ in sample_target ? calc_σ(gm.gp, transformed_σ) : get_σ(gm)
         ϕ = :ϕ in sample_target ? calc_ϕ(gm.gp, transformed_ϕ) : get_ϕ(gm)
     end
@@ -61,18 +69,19 @@ function ulogpdf(gm::MAGI, param_dict::Dict{Symbol,Any};
         ly = :ϕ in sample_target ? logpdf_y(gm, Y_std, X, σ, ϕ) : logpdf_y(gm, Y_std, X, σ)
     end
     lθ = logpdf_θ(gm, θ)
+    lγ = logpdf_γ(gm, γ)
     lσ = logpdf_σ(gm, σ)
     lϕ = logpdf_ϕ(gm, ϕ)
-    # MAGI: ODE constraint with fixed γ_jitter, weighted by β
-    le = gm.β[1] * ulogpdf_e(gm.odegrad, gm.gp, X, θ, gm.γ_jitter)
+    le = gm.β[1] * ulogpdf_e(gm, X, θ, γ)
 
     if merge_output
-        return lx + ly + lθ + lσ + lϕ + le
+        return lx + ly + lθ + lγ + lσ + lϕ + le
     else
         return Dict(
             :logpdf_x => lx,
             :logpdf_y => ly,
             :logpdf_θ => lθ,
+            :logpdf_γ => lγ,
             :logpdf_σ => lσ,
             :logpdf_ϕ => lϕ,
             :ulogpdf_e => le

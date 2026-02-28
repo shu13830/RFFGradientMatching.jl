@@ -4,7 +4,7 @@
         @test gm isa MAGI
         @test gm isa RFFGradientMatching.AbstractGM
         @test length(gm.gp) == 2
-        @test gm.γ_jitter == 1e-3
+        @test gm.odegrad.γ == 1e-3
         @test gm.β[1] == 1.0  # no annealing by default (anneal_length=1)
         @test gm.anneal_length == 1
         @test length(gm.odegrad.θ) == 4
@@ -41,7 +41,7 @@
         @test haskey(lpd_dict, :logpdf_σ)
         @test haskey(lpd_dict, :logpdf_ϕ)
         @test haskey(lpd_dict, :ulogpdf_e)
-        @test !haskey(lpd_dict, :logpdf_γ)  # MAGI has no γ term
+        @test haskey(lpd_dict, :logpdf_γ)  # MAGI now uses odegrad.γ (unified with GPGM/RFFGM)
         @test lpd ≈ sum(values(lpd_dict))
 
         # With sample_target

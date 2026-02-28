@@ -27,6 +27,7 @@ mutable struct GP
     K′::Matrix{Float64}              # first derivative of the kernel with respect to the input 
     K″::Matrix{Float64}              # second derivative of the kernel with respect to the input
     K′ᵀK⁻¹::Matrix{Float64}          # K′' * inv(K)
+    dfdt_cov_cache::Matrix{Float64}  # cached Cov[df/dt] = K″ - K′ᵀK⁻¹ K′
     standardize::Bool                # whether to standardize the observations
     centralize::Bool                 # whether to centralize the observations
 
@@ -63,6 +64,7 @@ mutable struct GP
         K′ = eval_dKdt(k, σᵤ, z)
         K″ = eval_d²Kdt²(k, σᵤ, z)
         K′ᵀK⁻¹ = K′' * K⁻¹
+        dfdt_cov_cache = K″ - K′ᵀK⁻¹ * K′
 
         if standardize
             y_mean = StatsBase.mean(y)
@@ -78,8 +80,8 @@ mutable struct GP
             y_standardized = y
         end
 
-        return new(z, u, x, y, y_mean, y_std, y_standardized, σᵤ, σ, tσ, k, 
-            tϕ, f, fz, f′, f′x, K, K⁻¹, KᵀK⁻¹, K̂, L, L⁻¹, K′, K″, K′ᵀK⁻¹, standardize, centralize)
+        return new(z, u, x, y, y_mean, y_std, y_standardized, σᵤ, σ, tσ, k,
+            tϕ, f, fz, f′, f′x, K, K⁻¹, KᵀK⁻¹, K̂, L, L⁻¹, K′, K″, K′ᵀK⁻¹, dfdt_cov_cache, standardize, centralize)
     end
 end
 
@@ -286,7 +288,7 @@ dfdt_mean(gp::GP, x::AbstractVector{<:Real}) = gp.K′ᵀK⁻¹ * x
 dfdt_mean(gp::GP) = dfdt_mean(gp, gp.u)
 dfdt_mean(gp::Vector{GP}, X::AbstractMatrix{<:Real}) = [dfdt_mean(gp[k], xk[:]) for (k, xk) in enumerate(eachrow(X))]
 
-dfdt_cov(gp::GP) = gp.K″ - gp.K′' * (cov(gp.fz) \ gp.K′)
+dfdt_cov(gp::GP) = gp.dfdt_cov_cache
 dfdt_cov(gp::Vector{GP}) = [dfdt_cov(gp[i]) for i in 1:length(gp)]
 
 # logpdf functions

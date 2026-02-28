@@ -24,7 +24,8 @@ mutable struct RFFGP
     H::Matrix{Float64}               # random fourier features at inducing points
     H′::Matrix{Float64}              # random fourier features at training points
     w::Vector{Float64}               # weights of random fourier features
-    dHdt::Matrix{Float64}            # gradient of the random fourier features with respect to the input (rows: n_rff, cols: length(z)) 
+    dHdt::Matrix{Float64}            # gradient of the random fourier features with respect to the input (rows: n_rff, cols: length(z))
+    dfdt_cov_cache::Matrix{Float64}  # cached Cov[df/dt] = dHdt' Λw⁻¹ dHdt
     standardize::Bool                # whether to standardize the observations
     centralize::Bool                 # whether to centralize the observations
 
@@ -61,6 +62,7 @@ mutable struct RFFGP
         H′ = h(RowVecs(x[:,:])).X
         w = f′.blr.mw
         dHdt = eval_dHdt(h, z)
+        dfdt_cov_cache = dHdt' * (f′.blr.Λw \ dHdt)
 
         if standardize
             y_mean = StatsBase.mean(y)
@@ -76,8 +78,8 @@ mutable struct RFFGP
             y_standardized = y
         end
 
-        return new(z, u, x, y, y_mean, y_std, y_standardized, σᵤ, σ, tσ, k, 
-            n_rff, h, tϕ, blr, f, fz, f′, f′x, H, H′, w, dHdt, standardize, centralize)
+        return new(z, u, x, y, y_mean, y_std, y_standardized, σᵤ, σ, tσ, k,
+            n_rff, h, tϕ, blr, f, fz, f′, f′x, H, H′, w, dHdt, dfdt_cov_cache, standardize, centralize)
     end
 end
 
@@ -204,7 +206,7 @@ dfdt_mean(gp::RFFGP, w::AbstractVector{<:Real}) = gp.dHdt' * w
 dfdt_mean(gp::RFFGP) = dfdt_mean(gp, gp.w)
 dfdt_mean(gp::Vector{RFFGP}, W::AbstractMatrix{<:Real}) = [dfdt_mean(gp[k], wk[:]) for (k, wk) in enumerate(eachrow(W))]
 
-dfdt_cov(gp::RFFGP) = gp.dHdt' * (weight_precision(gp) \ gp.dHdt)
+dfdt_cov(gp::RFFGP) = gp.dfdt_cov_cache
 dfdt_cov(gp::Vector{RFFGP}) = [dfdt_cov(gpk) for gpk in gp]
 
 # logpdf functions

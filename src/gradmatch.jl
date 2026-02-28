@@ -125,10 +125,9 @@ struct MAGI <: AbstractGM
     β_schedule::Vector{Float64}
     anneal_length::Int
     anneal_iter::Vector{Int}
-    γ_jitter::Float64  # fixed small jitter for numerical stability (replaces γ)
 
     function MAGI(odegrad::ODEGrad, gp::Vector{GP}, anneal_length::Int;
-                  γ_jitter::Float64=1e-3)
+                  γ_init::Float64=1e-3)
         if anneal_length <= 1
             β_schedule = [1.0]
             β = [1.0]
@@ -138,7 +137,8 @@ struct MAGI <: AbstractGM
             β = [β_schedule[1]]
             anneal_iter = [1]
         end
-        new(odegrad, gp, β, β_schedule, anneal_length, anneal_iter, γ_jitter)
+        odegrad.γ = γ_init
+        new(odegrad, gp, β, β_schedule, anneal_length, anneal_iter)
     end
 
     function MAGI(
@@ -150,7 +150,7 @@ struct MAGI <: AbstractGM
         standardize::Bool=false,
         centralize::Bool=false,
         anneal_length::Int=1,
-        γ_jitter::Float64=1e-3
+        γ_init::Float64=1e-3
     )
         @assert length(times) == size(obs, 2)
         n_gps = size(obs, 1)
@@ -170,7 +170,7 @@ struct MAGI <: AbstractGM
             ]
         end
 
-        MAGI(odegrad, gp, anneal_length; γ_jitter=γ_jitter)
+        MAGI(odegrad, gp, anneal_length; γ_init=γ_init)
     end
 end
 
@@ -178,7 +178,7 @@ Base.show(io::IO, gm::MAGI) = print(io, "MAGI (Manifold-constrained GP Inference
     ODE problem: $(gm.odegrad.functions.probname)
     #states in the ODE: $(length(gm.gp))
     #ODE parameters: $(gm.odegrad.θ |> length)
-    γ_jitter: $(gm.γ_jitter)
+    γ: $(gm.odegrad.γ)
 ")
 
 function set_priortransform_on_θ!(

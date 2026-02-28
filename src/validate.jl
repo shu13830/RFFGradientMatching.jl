@@ -50,16 +50,17 @@ function validate_∇tx_ulogpdf_e(gpgm::GPGM; atol=1e-5)
 end
 
 function validate_∇tx_ulogpdf_e(magi::MAGI; atol=1e-5)
-    function ∇tx_ulogpdf_e_autodiff(magi, transformed_X, θ, γ_jitter)
-        logpdf_fn = tx -> ulogpdf_e(magi.odegrad, magi.gp, calc_X(magi.gp, tx), θ, γ_jitter)
+    function ∇tx_ulogpdf_e_autodiff(magi, transformed_X, θ, γ)
+        logpdf_fn = tx -> ulogpdf_e(magi.odegrad, magi.gp, calc_X(magi.gp, tx), θ, γ)
         return reduce(vcat, ForwardDiff.gradient(logpdf_fn, transformed_X)')
     end
 
     transformed_X = get_transformed_X(magi)
     X = calc_X(magi.gp, transformed_X)
     θ = get_θ(magi)
-    analytic_grad = ∇tx_ulogpdf_e(magi.odegrad, magi.gp, X, θ, magi.γ_jitter)
-    autodiff_grad = ∇tx_ulogpdf_e_autodiff(magi, transformed_X, θ, magi.γ_jitter)
+    γ = get_γ(magi)
+    analytic_grad = ∇tx_ulogpdf_e(magi.odegrad, magi.gp, X, θ, γ)
+    autodiff_grad = ∇tx_ulogpdf_e_autodiff(magi, transformed_X, θ, γ)
     @assert isapprox(analytic_grad, autodiff_grad, atol=atol)
     return true
 end
@@ -152,16 +153,17 @@ function validate_∇tθ_ulogpdf_e(gpgm::GPGM; atol=1e-5)
 end
 
 function validate_∇tθ_ulogpdf_e(magi::MAGI; atol=1e-5)
-    function ∇tθ_ulogpdf_e_autodiff(magi, X, transformed_θ, γ_jitter)
-        logpdf_fn = tθ -> ulogpdf_e(magi.odegrad, magi.gp, X, calc_θ(magi.odegrad, tθ), γ_jitter)
+    function ∇tθ_ulogpdf_e_autodiff(magi, X, transformed_θ, γ)
+        logpdf_fn = tθ -> ulogpdf_e(magi.odegrad, magi.gp, X, calc_θ(magi.odegrad, tθ), γ)
         return ForwardDiff.gradient(logpdf_fn, transformed_θ)
     end
 
     X = get_X(magi)
     transformed_θ = get_transformed_θ(magi)
     θ = calc_θ(magi.odegrad, transformed_θ)
-    analytic_grad = ∇tθ_ulogpdf_e(magi.odegrad, magi.gp, X, θ, magi.γ_jitter)
-    autodiff_grad = ∇tθ_ulogpdf_e_autodiff(magi, X, transformed_θ, magi.γ_jitter)
+    γ = get_γ(magi)
+    analytic_grad = ∇tθ_ulogpdf_e(magi.odegrad, magi.gp, X, θ, γ)
+    autodiff_grad = ∇tθ_ulogpdf_e_autodiff(magi, X, transformed_θ, γ)
     @assert isapprox(analytic_grad, autodiff_grad, atol=atol)
     return true
 end
@@ -415,15 +417,16 @@ end
 function validate_∇tϕ_ulogpdf_e(magi::MAGI; atol=1e-4)
     X = get_X(magi)
     θ = get_θ(magi)
+    γ = get_γ(magi)
     ϕ = get_ϕ(magi)
     transformed_ϕ = get_transformed_ϕ(magi)
 
     function logpdf_fn(tϕ)
         ϕ_mat = calc_ϕ(magi.gp, reshape(tϕ, size(transformed_ϕ)))
-        return ulogpdf_e(magi.odegrad, magi.gp, X, θ, magi.γ_jitter, ϕ_mat)
+        return ulogpdf_e(magi.odegrad, magi.gp, X, θ, γ, ϕ_mat)
     end
 
-    analytic_grad = ∇tϕ_ulogpdf_e(magi.odegrad, magi.gp, X, θ, magi.γ_jitter, ϕ)
+    analytic_grad = ∇tϕ_ulogpdf_e(magi.odegrad, magi.gp, X, θ, γ, ϕ)
     fd_grad = _finite_diff_gradient(logpdf_fn, vec(Float64.(transformed_ϕ)))
     @assert isapprox(analytic_grad, fd_grad, atol=atol) "∇tϕ_ulogpdf_e mismatch:\n  analytic=$analytic_grad\n  finite_diff=$fd_grad"
     return true
