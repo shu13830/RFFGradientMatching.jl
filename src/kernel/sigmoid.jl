@@ -58,7 +58,7 @@ end
 
 function kernelmatrix_diag(κ::SigmoidKernel, x::ColVecs)
     x_2 = vec(sum(x.X .* x.X; dims=1) .* κ.b .+ κ.a .+ 1)
-    return asin.((κ.b .* x_2 .+ κ.a) ./ x_2)
+    return asin.((x_2 .- 1) ./ x_2)
 end
 
 function kernelmatrix_diag(κ::SigmoidKernel, x::ColVecs, y::ColVecs)
@@ -86,7 +86,7 @@ end
 
 function kernelmatrix_diag(κ::SigmoidKernel, x::RowVecs)
     x_2 = vec(sum(x.X .* x.X; dims=2) .* κ.b .+ κ.a .+ 1)
-    return asin.((κ.b .* x_2 .+ κ.a) ./ x_2)
+    return asin.((x_2 .- 1) ./ x_2)
 end
 
 function kernelmatrix_diag(κ::SigmoidKernel, x::RowVecs, y::RowVecs)
