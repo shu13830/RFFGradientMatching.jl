@@ -1,132 +1,96 @@
 # RFFGradientMatching.jl
 
-[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://anonymous-author.github.io/RFFGradientMatching.jl/stable/)
-[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://anonymous-author.github.io/RFFGradientMatching.jl/dev/)
-[![Build Status](https://github.com/anonymous-author/RFFGradientMatching.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/anonymous-author/RFFGradientMatching.jl/actions/workflows/CI.yml?query=branch%3Amain)
+[![Build Status](https://github.com/shu13830/RFFGradientMatching.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/shu13830/RFFGradientMatching.jl/actions/workflows/CI.yml?query=branch%3Amain)
 
+![Julia](https://img.shields.io/badge/julia-v1.10%2B-blue)
 
-![Stable](https://img.shields.io/badge/status-stable-green) ![Julia](https://img.shields.io/badge/julia-v1.9%2B-blue)
+**RFFGradientMatching.jl** is a Julia package for Bayesian inference of parameters in ordinary differential equation (ODE) models using gradient matching. It supports three methods under a unified `AbstractGM` API:
 
-**RFFGradientMatching** is a Julia package for Bayesian inference of parameters in ordinary differential equation (ODE) models using gradient matching. It supports both:
+* **GPGM** — Gaussian Process Gradient Matching (function space)
+* **RFFGM** — Random Fourier Features Gradient Matching (weight space)
+* **MAGI** — Manifold-constrained GP Inference (Julia re-implementation of R CRAN `magi`)
 
-* **Gaussian Process Gradient Matching** (GPGM)
-* **Random Fourier Features Gradient Matching** (RFGM)
-
-Leverages DifferentialEquations.jl, KernelFunctions.jl, AbstractGPs.jl, GeneralizedRandomFourierFeatures.jl, and a suite of MCMC samplers from AdvancedHMC.jl, AbstractMCMC.jl, and AdvancedMH.jl.
+Leverages DifferentialEquations.jl, KernelFunctions.jl, AbstractGPs.jl, GeneralizedRandomFourierFeatures.jl, BayesianLinearRegressors.jl, and MCMC samplers from AdvancedHMC.jl, AbstractMCMC.jl, and AdvancedMH.jl.
 
 ## Installation
 
 ```julia
-] add RFFGradientMatching
+using Pkg
+Pkg.develop(url="https://github.com/shu13830/RFFGradientMatching.jl")
 ```
 
-## Usage
-
-### 1. Command‑line Script for ODE Parameter Estimation
-
-RFFGradientMatching provides an example CLI script (`estimate_ode.jl`) that uses ArgParse and a `config.yaml` to specify problem settings:
-
-```bash
-julia estimate_ode.jl --ode PredatorPrey
-```
-
-Inside the script:
+## Quick Start
 
 ```julia
-using ArgParse, YAML, DifferentialEquations, KernelFunctions
-using AbstractMCMC, MCMCChains, Plots
+using DifferentialEquations, KernelFunctions, Distributions
+using AbstractMCMC, Random
 using RFFGradientMatching
 
-# Load config
-parsed = parse_args(s)  # --ode name
-cfg = YAML.load_file("config.yaml")[parsed["ode"]]
-
-# Unpack settings
-tspan = tuple(cfg["tspan"]...)
-obs_time = cfg["obs_time"] |> float
-u0, p_true = cfg["initial_conditions"], cfg["true_parameters"]
-noise_std, state_noise_std = cfg["noise_std"], cfg["state_noise_std"]
-kern = cfg["gp_kernel"] == "RBF" ? SqExponentialKernel() : Matern52Kernel()
-
-# 1. Simulate ODE and add noise
-prob = ODEProblem(RFFGradientMatching.lotkavolterrapredatorprey!, u0, tspan, p_true)
-sol  = solve(prob, Tsit5(), saveat=obs_time)
-y_obs = Array(sol) .+ noise_std * randn(size(sol))
+# 1. Simulate ODE (Lotka-Volterra) and add noise
+Random.seed!(42)
+θ_true = [2.0, 1.0, 4.0, 1.0]
+prob = ODEProblem(lotkavolterrapredatorprey!, [5.0, 3.0], (0.0, 2.0), θ_true)
+times = collect(range(0.0, 2.0, length=20))
+sol = solve(prob, Tsit5(), saveat=times)
+y_obs = Array(sol) .+ 0.5 .* randn(size(sol))
 
 # 2. Initialize RFFGM
-gm = RFFGM(obs_time, y_obs, prob, parsed["ode"]; k=kern,
-            state_noise_std=state_noise_std,
-            obs_noise_std=noise_std)
+gm = RFFGM(times, y_obs, prob, "LV";
+    k=SqExponentialKernel(), state_noise_std=1e-3, obs_noise_std=0.5, n_rff=100)
 
-# 3. Set priors and transforms
-set_priortransform_on_θ!(gm,
-    fill(Normal(0,1), length(p_true)),
-    fill(log, length(p_true)))
+# 3. Set priors and transforms on ODE parameters
+set_priortransform_on_θ!(gm, fill(Normal(0, 1), 4), fill(log, 4))
 
 # 4. Optimize hyperparameters and latent states
 optimize_ϕ_and_σ!(gm)
 optimize_u!(gm)
 
 # 5. Define sampling blocks
-block_W   = HMCBlock(gm, [:W];   n_leapfrog=10, step_size=0.05)
-block_Wθ  = HMCBlock(gm, [:W,:θ]; n_leapfrog=10, step_size=0.01)
-block_θ   = HMCBlock(gm, [:θ];   n_leapfrog=10, step_size=0.05)
-bs = BlockedSampler([[block_W], [block_Wθ], [block_θ]], [0.4,0.4,0.2])
+block_W  = HMCBlock(gm, [:W];    n_leapfrog=10, step_size=0.05)
+block_Wθ = HMCBlock(gm, [:W,:θ]; n_leapfrog=10, step_size=0.01)
+block_θ  = HMCBlock(gm, [:θ];    n_leapfrog=10, step_size=0.05)
+bs = BlockedSampler([[block_W], [block_Wθ], [block_θ]], [0.4, 0.4, 0.2])
 
 # 6. Run MCMC
-chain = AbstractMCMC.sample(gm, bs, 1000; num_burnin=500)
+chain, logdens = AbstractMCMC.sample(gm, bs, 1000; num_burnin=500, anneal=true)
 
-# 7. Inspect and plot results
-theta_samples = get_θ(gm)
-plot(theta_samples, label="θ trace")
-```
-
-Be sure to include a `config.yaml` alongside the script:
-
-```yaml
-PredatorPrey:
-  true_parameters: [1.5, 1.0, 3.0, 1.0]
-  initial_conditions: [1.0, 1.0]
-  tspan: [0.0, 10.0]
-  obs_time: [0.0,0.2,...,10.0]
-  noise_std: 0.05
-  state_noise_std: 1e-4
-  gp_kernel: RBF
-  mcmc_iterations: 1000
-  burn_in: 500
-```
-
-### 2. Interactive API Example
-
-```julia
-using DifferentialEquations, KernelFunctions, RFFGradientMatching
-
-# Define and simulate ODE
-prob = ODEProblem(lotkavolterrapredatorprey!, [1.0,1.0], (0.0,10.0), [1.5,1.0,3.0,1.0])
-ts, y = range(0,10, length=50), Array(solve(prob, Tsit5(), saveat=ts))
-
-gm = GPGM(ts, y, prob, "LV"; k=Matern52Kernel(), state_noise_std=0.1, obs_noise_std=0.05)
-set_priortransform_on_θ!(gm, fill(Gamma(2,2),4), fill(log,4))
-optimize_ϕ_and_σ!(gm); optimize_u!(gm)
-chain, _ = AGM(ts, y, prob, "LV"; k=Matern52Kernel())
-samples, logdens = sample(gm, bs, 2000; num_burnin=500)
+# 7. Inspect results
+θ_samples = get_θ(gm, chain)  # n_samples × n_θ matrix
 ```
 
 ## API Reference
 
 ### Key Types
 
-* `ODEGrad` – wraps an ODEProblem and gradient utilities
-* `GP` / `RFFGP` – GP and RFF approximations with gradient functions
-* `GPGM` / `RFGM` – gradient matching models
-* `HMCBlock`, `NUTSBlock`, `StaticMHBlock`, `ESSBlock`, etc. – for constructing `BlockedSampler`
+* `AbstractGM` — abstract base type for gradient matching models
+* `RFFGM <: AbstractGM` — weight-space (RFF) gradient matching
+* `GPGM <: AbstractGM` — function-space (GP) gradient matching
+* `MAGI <: AbstractGM` — manifold-constrained GP inference
+* `ODEGrad` / `ODEGradFuns` — ODE right-hand side and Jacobians (via ForwardDiff)
+* `GP` / `RFFGP` — function-space and weight-space GP models
+* `BlockedSampler` — block MCMC sampler with probabilistic block selection
+* `HMCBlock`, `NUTSBlock`, `HMCDABlock`, `ESSBlock`, `GESSBlock`, `RWMHBlock`, `StaticMHBlock` — sampling block types
 
 ### Core Functions
 
-* `optimize_ϕ_and_σ!(gm)`, `optimize_u!(gm)` – initialize hyperparameters and latent states
-* `set_priortransform_on_θ!(gm, priors, transforms)` – apply priors/transforms on ODE parameters
-* `sample(gm, sampler, n_samples; num_burnin)` – run MCMC
-* Accessors: `get_θ`, `get_γ`, `get_σ`, `get_ϕ`, `plot` methods for diagnostics
+* `optimize_ϕ_and_σ!(gm)` — optimize kernel hyperparameters and observation noise
+* `optimize_u!(gm)` — optimize latent states (inducing point values) via MAP
+* `set_priortransform_on_θ!(gm, priors, transforms)` — set priors and transforms on ODE parameters
+* `set_priortransform_on_σ!`, `set_priortransform_on_ϕ!`, `set_priortransform_on_γ!` — set priors on other parameters
+* `AbstractMCMC.sample(gm, sampler, n; num_burnin, anneal)` — run blocked MCMC (returns `(chain, logdens)`)
+* `build_rff_basis(k, input_dims, n_rff)` — build unified RFF basis for standard and generalized kernels
+* `rff_approx_error(h, k, t)` — compute RFF kernel approximation error
+
+### Accessors
+
+* `get_θ(gm)`, `get_θ(gm, chain)` — ODE parameters (current / from chain)
+* `get_W(gm)`, `get_W(gm, chain)` — RFF weights (RFFGM)
+* `get_X(gm)`, `get_X(gm, chain)` — latent states (GPGM/MAGI)
+* `get_σ(gm)`, `get_σ(gm, chain)` — observation noise
+* `get_γ(gm)`, `get_γ(gm, chain)` — mismatch parameter
+* `get_ϕ(gm)`, `get_ϕ(gm, chain)` — kernel hyperparameters
+* `get_transformed_θ`, `get_transformed_σ`, etc. — parameters in unconstrained space
+* `pack_param_vec`, `pack_param_dict`, `update_model_with_vec!`, `update_model_with_dict!` — parameter pack/unpack utilities
 
 ## License
 
