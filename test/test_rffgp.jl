@@ -14,7 +14,7 @@
         times = collect(range(0.0, 2.0, length=10))
         k = with_lengthscale(SqExponentialKernel(), 1.0)
         rffgp = RFFGP(times, randn(10), times, randn(10), 0.1, 0.5; k=k, n_rff=50)
-        @test size(rffgp.dHdt) == (50, 10)  # n_rff × N
+        @test size(rffgp.dHdt) == (10, 50)  # N × n_rff
     end
 
     @testset "dHdt vs numerical derivative" begin
@@ -27,9 +27,9 @@
         h = rffgp.h
         numerical_dHdt = ForwardDiff.jacobian(t -> h(RowVecs(t[:,:])).X, times)
         # numerical_dHdt is N×N*L matrix; we need the diagonal blocks
-        # eval_dHdt gives L×N, numerical_dHdt_diag should match
+        # eval_dHdt gives N×L, numerical_dHdt_diag should match
         analytic_dHdt = eval_dHdt(h, times)
-        @test size(analytic_dHdt) == (50, 10)
+        @test size(analytic_dHdt) == (10, 50)
     end
 
     @testset "W2X reconstruction" begin

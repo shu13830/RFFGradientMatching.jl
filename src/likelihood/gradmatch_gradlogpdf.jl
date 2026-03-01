@@ -340,9 +340,8 @@ function ∇w_ulogpdf_e(
     ∇x_ẋode = eval_dẋdx(odegrad, X_destandardized, θ, y_std)  # K x K x N
     ∇w_e = []
     for (k, gpk) in enumerate(gp)
-        ∇wk_ẋgp = gpk.dHdt  # n(RFF) x N
-        ∇wk_e = ∇wk_ẋgp * ∇ẋgp_e[k,:] +
-            gpk.H' * sum(∇ẋode_e .* ∇x_ẋode[:,k,:], dims=1)[:]  # N length Vector
+        ∇wk_e = gpk.dHdt' * ∇ẋgp_e[k,:] +
+            gpk.H' * sum(∇ẋode_e .* ∇x_ẋode[:,k,:], dims=1)[:]  # L length Vector
         push!(∇w_e, ∇wk_e)
     end
     grads = reduce(vcat, ∇w_e)  # KN length Vector
