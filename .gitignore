@@ -6,6 +6,7 @@ combined_src.jl
 /experiments/*/results/
 /experiments/*/figures/
 .ipynb_checkpoints/
+.claude/
 
 src/models/agm.jl
 src/models/fgpgm.jl
@@ -23,3 +24,4 @@ internal/
 
 # Development guide (private)
 DEVELOPMENT_GUIDE.md
+Experiments_Implementation.md

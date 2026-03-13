@@ -20,7 +20,8 @@ import RFFGradientMatching:
     fitzhughnagumo!, signaltransductioncascade!, lorenz96!, sir!,
     SigmoidKernel, pack_param_dict, get_logdensity,
     build_rff_basis, rff_approx_error,
-    Hmat, W2X, calc_destandardized_X, get_y_std
+    Hmat, W2X, calc_destandardized_X, get_y_std,
+    AbstractGM
 
 # ── Constants ──────────────────────────────────────────────────────
 
@@ -78,7 +79,7 @@ const ODE_CONFIGS = Dict(
         [1.0, 0.0, 1.0, 0.0, 0.0],
         (0.0, 100.0),
         0.01,
-        1.0 * SigmoidKernel(1.0, 0.0),
+        1.0 * with_lengthscale(SqExponentialKernel(), 1.0),
         ["k1", "k2", "k3", "k4", "V", "Km"],
         ["S", "dS", "R", "Rs", "Rpp"],
     ),
@@ -280,6 +281,20 @@ function setup_model(::Type{GPGM}, config::ODEConfig, times, y_obs, prob;
     return gm
 end
 
+function setup_model(::Type{MAGI}, config::ODEConfig, times, y_obs, prob;
+    kernel=config.kernel, anneal_length=1, n_rff=0, kwargs...)
+
+    gm = MAGI(times, y_obs, prob, config.name;
+        k=kernel, state_noise_std=STATE_NOISE_STD, obs_noise_std=config.noise_std,
+        anneal_length=anneal_length)
+
+    n_θ = length(prob.p)
+    set_priortransform_on_θ!(gm, fill(Normal(0.0, 1.0), n_θ), fill(log, n_θ))
+    optimize_ϕ_and_σ!(gm)
+    optimize_u!(gm)
+    return gm
+end
+
 # ── Sampler Creation ──────────────────────────────────────────────
 
 function create_blocked_sampler(gm::RFFGM;
@@ -302,10 +317,20 @@ function create_blocked_sampler(gm::GPGM;
     return BlockedSampler([[block_X], [block_Xθ], [block_θ]], [0.4, 0.4, 0.2])
 end
 
+function create_blocked_sampler(gm::MAGI;
+    step_size_latent=0.05, step_size_joint=0.01, step_size_theta=0.05,
+    n_leapfrog=10)
+
+    block_X  = HMCBlock(gm, [:X];     n_leapfrog=n_leapfrog, step_size=step_size_latent, metric=:diag)
+    block_Xθ = HMCBlock(gm, [:X, :θ]; n_leapfrog=n_leapfrog, step_size=step_size_joint,  metric=:diag)
+    block_θ  = HMCBlock(gm, [:θ];     n_leapfrog=n_leapfrog, step_size=step_size_theta,  metric=:diag)
+    return BlockedSampler([[block_X], [block_Xθ], [block_θ]], [0.4, 0.4, 0.2])
+end
+
 # ── Single Experiment Runner ──────────────────────────────────────
 
 function run_single_experiment(
-    method::Type{<:Union{RFFGM,GPGM}}, config::ODEConfig;
+    method::Type{<:AbstractGM}, config::ODEConfig;
     N::Int, seed::Int,
     kernel=config.kernel,
     n_rff::Int=DEFAULT_N_RFF,
@@ -354,6 +379,28 @@ function compute_rhat(θ_chain::AbstractMatrix)
     chn = Chains(θ_chain)
     rhat_df = MCMCDiagnosticTools.rhat(chn)
     return rhat_df.nt.rhat
+end
+
+function compute_coverage(θ_chain::AbstractMatrix, θ_true::Vector{Float64}; α=0.05)
+    n_params = length(θ_true)
+    covered = 0
+    for j in 1:n_params
+        q_low = quantile(θ_chain[:, j], α/2)
+        q_high = quantile(θ_chain[:, j], 1 - α/2)
+        if q_low <= θ_true[j] <= q_high
+            covered += 1
+        end
+    end
+    return covered / n_params
+end
+
+function compute_trajectory_rmse(gm, chain, config; N_dense=200, n_warmup=0)
+    t_dense = collect(range(config.tspan..., length=N_dense))
+    traj_mean, _, _ = compute_trajectory_stats(gm, chain, t_dense; n_warmup=n_warmup)
+    prob = ODEProblem(config.f!, config.u0, config.tspan, config.θ_true)
+    sol = solve(prob, Tsit5(), saveat=t_dense)
+    x_true = Array(sol)  # K × N_dense
+    return sqrt(mean((traj_mean .- x_true).^2))
 end
 
 function compute_all_metrics(result, θ_true::Vector{Float64})
@@ -457,10 +504,11 @@ function parse_seeds(s::String)
 end
 
 function parse_methods(s::String)
-    s == "ALL" && return [RFFGM, GPGM]
+    s == "ALL" && return [RFFGM, GPGM, MAGI]
     s == "RFFGM" && return [RFFGM]
     s == "GPGM" && return [GPGM]
-    error("Unknown method: $s. Use RFFGM, GPGM, or ALL.")
+    s == "MAGI" && return [MAGI]
+    error("Unknown method: $s. Use RFFGM, GPGM, MAGI, or ALL.")
 end
 
 # ── Logging ───────────────────────────────────────────────────────
@@ -515,12 +563,12 @@ function compute_trajectory_stats(gm::RFFGM, chain, times_dense; n_warmup::Int=0
 end
 
 """
-    compute_trajectory_stats(gm::GPGM, chain, times_dense; n_warmup=0)
+    compute_trajectory_stats(gm::Union{GPGM,MAGI}, chain, times_dense; n_warmup=0)
 
-GPGM version: uses GP conditional mean at dense time points.
+GPGM/MAGI version: uses GP conditional mean at dense time points.
 Returns `(mean, lower, upper)` each of size `K × N_dense` (destandardized).
 """
-function compute_trajectory_stats(gm::GPGM, chain, times_dense; n_warmup::Int=0)
+function compute_trajectory_stats(gm::Union{GPGM,MAGI}, chain, times_dense; n_warmup::Int=0)
     post_chain = chain[n_warmup+1:end]
     X_samples = get_X(gm, post_chain)   # n_samples × K × N_obs
     n_samples, K, N_obs = size(X_samples)
