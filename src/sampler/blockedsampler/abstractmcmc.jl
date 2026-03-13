@@ -62,6 +62,14 @@ function AbstractMCMC.step(rng::AbstractRNG,
         elseif blk isa ComponentWiseMHBlock
             cwmh_transitions, _ = AbstractMCMC.sample(rng, blk.model, blk.sampler, param_vec, blk.n)
             new_param_vec = cwmh_transitions[end].params
+        elseif blk isa ELMCBlock
+            new_param_vec, accepted = elmc_step(blk, param_vec)
+            record_accept!(blk, accepted)
+            anneal_done = model.anneal_iter[1] >= model.anneal_length
+            if burnin && anneal_done
+                record_sample!(blk, new_param_vec)
+            end
+            adjust_ϵ_heuristically!(burnin, blk)
         else
             error("Unsupported block type: $(typeof(blk))")
         end

@@ -58,6 +58,7 @@ include("sampler/blockedsampler/abstractmcmc.jl")
 include("sampler/blockedsampler/blocks.jl")
 include("sampler/blockedsampler/plot.jl")
 include("sampler/blockedsampler/hmc_utils.jl")
+include("sampler/blockedsampler/elmc.jl")
 
 include("utils.jl")
 include("validate.jl")
@@ -74,7 +75,7 @@ export get_destandardized_X, get_y_std
 export get_transformed_X, get_transformed_θ, get_transformed_σ, get_transformed_γ,  get_transformed_ϕ
 
 export BlockedSampler
-export HMCBlock, NUTSBlock, HMCDABlock, RWMHBlock, StaticMHBlock, ESSBlock, GESSBlock
+export HMCBlock, NUTSBlock, HMCDABlock, RWMHBlock, StaticMHBlock, ESSBlock, GESSBlock, ELMCBlock
 export pack_param_dict, pack_param_dict_from_vec, update_param_dict_from_vec!,
     pack_param_vec_from_dict, pack_param_vec, 
     update_model_with_dict!, update_model_with_vec!
