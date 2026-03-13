@@ -1,11 +1,11 @@
 _to_colvecs(x::AbstractVector{<:Real}) = ColVecs(reshape(x, 1, :))
 
-struct SigmoidKernel <: KernelFunctions.Kernel
-    b::Float64  # Scaling parameter to adjust influence
-    a::Float64  # Bias term
-
-    SigmoidKernel(b::Float64, a::Float64) = new(b, a)
+struct SigmoidKernel{T<:Real} <: KernelFunctions.Kernel
+    b::T  # Scaling parameter to adjust influence
+    a::T  # Bias term
 end
+
+SigmoidKernel(b::Real, a::Real) = SigmoidKernel(promote(b, a)...)
 
 Base.show(io::IO, k::SigmoidKernel) = print(io, "SigmoidKernel(b = $(k.b), a = $(k.a))")
 
@@ -13,13 +13,11 @@ Base.show(io::IO, k::SigmoidKernel) = print(io, "SigmoidKernel(b = $(k.b), a = $
 SigmoidKernel() = SigmoidKernel(1.0, 0.0)
 
 function (κ::SigmoidKernel)(x, y)
-    return asin(
-        (κ.a + κ.b*dot(x, y))
-        /
-        sqrt(
-            (1 + κ.a + κ.b*sum(abs2, x)) *
-            (1 + κ.a + κ.b*sum(abs2, y)))
-    )
+    num = κ.a + κ.b*dot(x, y)
+    denom = sqrt(
+        (1 + κ.a + κ.b*sum(abs2, x)) *
+        (1 + κ.a + κ.b*sum(abs2, y)))
+    return asin(clamp(num / denom, -one(num), one(num)))
 end
 
 function kernelmatrix(
@@ -47,18 +45,18 @@ function kernelmatrix(κ::SigmoidKernel, x::ColVecs, y::ColVecs)
     X_2 = sum(x.X .* x.X; dims=1) .* κ.b .+ κ.a .+ 1
     Y_2 = sum(y.X .* y.X; dims=1) .* κ.b .+ κ.a .+ 1
     XY = κ.b .* (x.X' * y.X) .+ κ.a
-    return asin.(XY ./ sqrt.(X_2' * Y_2))
+    return asin.(clamp.(XY ./ sqrt.(X_2' * Y_2), -1, 1))
 end
 
 function kernelmatrix(κ::SigmoidKernel, x::ColVecs)
     X_2_1 = sum(x.X .* x.X; dims=1) .* κ.b .+ κ.a .+ 1
     XX = κ.b .* (x.X' * x.X) .+ κ.a
-    return asin.(XX ./ sqrt.(X_2_1' * X_2_1))
+    return asin.(clamp.(XX ./ sqrt.(X_2_1' * X_2_1), -1, 1))
 end
 
 function kernelmatrix_diag(κ::SigmoidKernel, x::ColVecs)
     x_2 = vec(sum(x.X .* x.X; dims=1) .* κ.b .+ κ.a .+ 1)
-    return asin.((x_2 .- 1) ./ x_2)
+    return asin.(clamp.((x_2 .- 1) ./ x_2, -1, 1))
 end
 
 function kernelmatrix_diag(κ::SigmoidKernel, x::ColVecs, y::ColVecs)
@@ -66,7 +64,7 @@ function kernelmatrix_diag(κ::SigmoidKernel, x::ColVecs, y::ColVecs)
     x_2 = vec(sum(x.X .* x.X; dims=1) .* κ.b .+ κ.a .+ 1)
     y_2 = vec(sum(y.X .* y.X; dims=1) .* κ.b .+ κ.a .+ 1)
     xy = vec(sum(x.X' .* y.X'; dims=2) .* κ.b .+ κ.a)
-    return asin.(xy ./ sqrt.(x_2 .* y_2))
+    return asin.(clamp.(xy ./ sqrt.(x_2 .* y_2), -1, 1))
 end
 
 # RowVecs kernelmatrix implementation
@@ -75,18 +73,18 @@ function kernelmatrix(κ::SigmoidKernel, x::RowVecs, y::RowVecs)
     X_2 = sum(x.X .* x.X; dims=2) .* κ.b .+ κ.a .+ 1
     Y_2 = sum(y.X .* y.X; dims=2) .* κ.b .+ κ.a .+ 1
     XY = κ.b .* (x.X * y.X') .+ κ.a
-    return asin.(XY ./ sqrt.(X_2 * Y_2'))
+    return asin.(clamp.(XY ./ sqrt.(X_2 * Y_2'), -1, 1))
 end
 
 function kernelmatrix(κ::SigmoidKernel, x::RowVecs)
     X_2_1 = sum(x.X .* x.X; dims=2) .* κ.b .+ κ.a .+ 1
     XX = κ.b .* (x.X * x.X') .+ κ.a
-    return asin.(XX ./ sqrt.(X_2_1 * X_2_1'))
+    return asin.(clamp.(XX ./ sqrt.(X_2_1 * X_2_1'), -1, 1))
 end
 
 function kernelmatrix_diag(κ::SigmoidKernel, x::RowVecs)
     x_2 = vec(sum(x.X .* x.X; dims=2) .* κ.b .+ κ.a .+ 1)
-    return asin.((x_2 .- 1) ./ x_2)
+    return asin.(clamp.((x_2 .- 1) ./ x_2, -1, 1))
 end
 
 function kernelmatrix_diag(κ::SigmoidKernel, x::RowVecs, y::RowVecs)
@@ -94,5 +92,5 @@ function kernelmatrix_diag(κ::SigmoidKernel, x::RowVecs, y::RowVecs)
     x_2 = vec(sum(x.X .* x.X; dims=2) .* κ.b .+ κ.a .+ 1)
     y_2 = vec(sum(y.X .* y.X; dims=2) .* κ.b .+ κ.a .+ 1)
     xy = vec(sum(x.X .* y.X; dims=2) .* κ.b .+ κ.a)
-    return asin.(xy ./ sqrt.(x_2 .* y_2))
+    return asin.(clamp.(xy ./ sqrt.(x_2 .* y_2), -1, 1))
 end
