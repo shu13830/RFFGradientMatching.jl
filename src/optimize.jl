@@ -18,14 +18,16 @@ function optimize_u!(gm::AbstractGM; maxiter::Int=1000, optimizer=default_optimi
             return - logpdf(_f′x, gp.y_standardized) - logpdf(_fz, u)
         end
 
-        # optimize u
+        # optimize u (with fallback on failure)
         u_init = copy(gp.u)
-        result = Optim.optimize(loss, u_init, optimizer, options, autodiff=:forward)
-        u_opt = Optim.minimizer(result)
-
-        # update u
-        gm.gp[k] = reconstruct_gp(gp; u=u_opt)
-        @info "Optimized"
+        try
+            result = Optim.optimize(loss, u_init, optimizer, options, autodiff=:forward)
+            u_opt = Optim.minimizer(result)
+            gm.gp[k] = reconstruct_gp(gp; u=u_opt)
+            @info "Optimized"
+        catch e
+            @warn "optimize_u! failed for GP $k ($e). Using initial values (ϕ/σ already optimized)."
+        end
     end
 end
 

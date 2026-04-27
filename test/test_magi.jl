@@ -22,8 +22,10 @@
         gm = MAGI(times, y_obs, prob, "LV";
             k=k, state_noise_std=0.1, obs_noise_std=0.1, anneal_length=100)
         @test gm.anneal_length == 100
+        # MAGI uses prior tempering: β = 1/T where T = |I|/N_obs
+        # β_schedule is [1/T] regardless of anneal_length
         @test gm.β[1] == gm.β_schedule[1]
-        @test length(gm.β_schedule) == 100
+        @test length(gm.β_schedule) == 1
     end
 
     @testset "MAGI logpdf" begin

@@ -22,6 +22,7 @@ using LogDensityProblems
 using MCMCChains
 using MCMCDiagnosticTools
 using MCMCTempering
+using BandedMatrices
 using Optim
 using Plots
 using ProgressMeter
@@ -40,6 +41,7 @@ import BayesianLinearRegressors: BasisFunctionRegressor, BayesianLinearRegressor
 
 include("priortransformation.jl")
 include("ode.jl")
+include("ode_jacobians.jl")
 include("odegrad.jl")
 include("kernel/sigmoid.jl")
 include("models/gp.jl")
@@ -80,7 +82,7 @@ export pack_param_dict, pack_param_dict_from_vec, update_param_dict_from_vec!,
     pack_param_vec_from_dict, pack_param_vec, 
     update_model_with_dict!, update_model_with_vec!
 
-export optimize_ϕ_and_σ!, optimize_u!
+export optimize_ϕ_and_σ!, optimize_u!, cache_e_cov_chol!, set_bandsize!
 export initialize_vars!
 
 export SigmoidKernel

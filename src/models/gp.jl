@@ -28,6 +28,7 @@ mutable struct GP
     K″::Matrix{Float64}              # second derivative of the kernel with respect to the input
     K′ᵀK⁻¹::Matrix{Float64}          # K′' * inv(K)
     dfdt_cov_cache::Matrix{Float64}  # cached Cov[df/dt] = K″ - K′ᵀK⁻¹ K′
+    e_cov_chol::Union{Nothing, Cholesky}  # cached Cholesky of e_cov = dfdt_cov + γ²I
     standardize::Bool                # whether to standardize the observations
     centralize::Bool                 # whether to centralize the observations
 
@@ -81,7 +82,7 @@ mutable struct GP
         end
 
         return new(z, u, x, y, y_mean, y_std, y_standardized, σᵤ, σ, tσ, k,
-            tϕ, f, fz, f′, f′x, K, K⁻¹, KᵀK⁻¹, K̂, L, L⁻¹, K′, K″, K′ᵀK⁻¹, dfdt_cov_cache, standardize, centralize)
+            tϕ, f, fz, f′, f′x, K, K⁻¹, KᵀK⁻¹, K̂, L, L⁻¹, K′, K″, K′ᵀK⁻¹, dfdt_cov_cache, nothing, standardize, centralize)
     end
 end
 
@@ -110,6 +111,7 @@ function reconstruct_gp(gp::GP;
         gp.σ = _σ
         gp.f′x = gp.f′(gp.x, gp.σ^2)
     elseif isnothing(ϕ) && !isnothing(u)
+        gp.u = _u
         gp.f′ = AbstractGPs.posterior(gp.fz, _u)
         gp.σ = _σ
         gp.f′x = gp.f′(gp.x, gp.σ^2)

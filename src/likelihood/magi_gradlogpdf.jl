@@ -49,33 +49,47 @@ function ∇ulogpdf(gm::MAGI, param_dict::Dict{Symbol,Any}, sample_target::Vecto
         gy_dy = ∇y_logpdf_y(gp, Y_std, X, σ)
         push!(grad, gy_dy)
     end
-    if :X in sample_target
+    inv_T = gm.β[1]  # prior tempering: 1/T
+    if :X in sample_target && :θ in sample_target && inv_T != 0.0
+        # Combined X+θ gradient (avoids duplicate ODE/Jacobian computation)
+        ge_dx, ge_dtθ = ∇txθ_ulogpdf_e(gm.odegrad, gm.gp, X, θ, γ)
+        ge_dx .*= inv_T
+        ge_dtθ .*= inv_T
         gy_dx = ∇tx_logpdf_y(gp, Y_std, X, σ)
-        gx_dx = ∇tx_logpdf_x(gp, X)
-        if gm.β[1] == 0.0
-            ge_dx = zeros(length(gx_dx))
-        else
-            ge_dx = gm.β[1] * ∇tx_ulogpdf_e(gm.odegrad, gm.gp, X, θ, γ)
-        end
-        @assert length(gx_dx) == length(gy_dx) == length(ge_dx)
+        gx_dx = inv_T * ∇tx_logpdf_x(gp, X)
         push!(grad, gx_dx .+ gy_dx .+ ge_dx)
-    end
-    if :θ in sample_target
         gθ_dtθ = ∇tθ_logpdf_θ(gm.odegrad, θ, transformed_θ)
-        if gm.β[1] == 0.0
-            ge_dtθ = zeros(length(gθ_dtθ))
-        else
-            ge_dtθ = gm.β[1] * ∇tθ_ulogpdf_e(gm.odegrad, gm.gp, X, θ, γ)
-        end
-        @assert length(gθ_dtθ) == length(ge_dtθ)
         push!(grad, gθ_dtθ .+ ge_dtθ)
+    else
+        if :X in sample_target
+            gy_dx = ∇tx_logpdf_y(gp, Y_std, X, σ)
+            gx_dx = inv_T * ∇tx_logpdf_x(gp, X)
+            if inv_T == 0.0
+                ge_dx = zeros(length(gx_dx))
+            else
+                ge_dx = inv_T * ∇tx_ulogpdf_e(gm.odegrad, gm.gp, X, θ, γ)
+            end
+            @assert length(gx_dx) == length(gy_dx) == length(ge_dx)
+            push!(grad, gx_dx .+ gy_dx .+ ge_dx)
+        end
+        if :θ in sample_target
+            gθ_dtθ = ∇tθ_logpdf_θ(gm.odegrad, θ, transformed_θ)
+            if inv_T == 0.0
+                ge_dtθ = zeros(length(gθ_dtθ))
+            else
+                ge_dtθ = inv_T * ∇tθ_ulogpdf_e(gm.odegrad, gm.gp, X, θ, γ)
+            end
+            @assert length(gθ_dtθ) == length(ge_dtθ)
+            push!(grad, gθ_dtθ .+ ge_dtθ)
+        end
     end
     if :γ in sample_target
+        inv_T = gm.β[1]
         gγ_dtγ = ∇tγ_logpdf_γ(gm.odegrad, γ, transformed_γ)
-        if gm.β[1] == 0.0
+        if inv_T == 0.0
             ge_dtγ = zeros(length(gγ_dtγ))
         else
-            ge_dtγ = gm.β[1] * ∇tγ_ulogpdf_e(gm.odegrad, gm.gp, X, θ, γ)
+            ge_dtγ = inv_T * ∇tγ_ulogpdf_e(gm.odegrad, gm.gp, X, θ, γ)
         end
         @assert length(gγ_dtγ) == length(ge_dtγ)
         push!(grad, gγ_dtγ .+ ge_dtγ)
@@ -87,13 +101,14 @@ function ∇ulogpdf(gm::MAGI, param_dict::Dict{Symbol,Any}, sample_target::Vecto
         push!(grad, gy_dtσ .+ gσ_dtσ)
     end
     if :ϕ in sample_target
-        gx_dtϕ = ∇tϕ_logpdf_x(gp, X, ϕ)
+        inv_T = gm.β[1]
+        gx_dtϕ = inv_T * ∇tϕ_logpdf_x(gp, X, ϕ)
         gy_dtϕ = ∇tϕ_logpdf_y(gp, Y_std, X, σ, ϕ)
         gϕ_dtϕ = ∇tϕ_logpdf_ϕ(gp, ϕ)
-        if gm.β[1] == 0.0
+        if inv_T == 0.0
             ge_dtϕ = zeros(length(gx_dtϕ))
         else
-            ge_dtϕ = gm.β[1] * ∇tϕ_ulogpdf_e(gm.odegrad, gm.gp, X, θ, γ, ϕ)
+            ge_dtϕ = inv_T * ∇tϕ_ulogpdf_e(gm.odegrad, gm.gp, X, θ, γ, ϕ)
         end
         @assert length(gx_dtϕ) == length(gy_dtϕ) == length(gϕ_dtϕ) == length(ge_dtϕ)
         push!(grad, gx_dtϕ .+ gy_dtϕ .+ gϕ_dtϕ .+ ge_dtϕ)

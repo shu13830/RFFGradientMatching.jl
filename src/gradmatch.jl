@@ -128,15 +128,17 @@ struct MAGI <: AbstractGM
 
     function MAGI(odegrad::ODEGrad, gp::Vector{GP}, anneal_length::Int;
                   γ_init::Float64=1e-3)
-        if anneal_length <= 1
-            β_schedule = [1.0]
-            β = [1.0]
-            anneal_iter = [1]
-        else
-            β_schedule = collect(0:1/anneal_length:1)[2:end]
-            β = [β_schedule[1]]
-            anneal_iter = [1]
-        end
+        # MAGI prior tempering: T = |I| / N_obs (R MAGI default, per-component)
+        # |I| = discretization grid, N_obs = observations
+        # lx and le are divided by T; ly is not tempered (T_obs = 1)
+        # β stores 1/T so that β * (lx + le) implements the tempering
+        N_inducing = length(gp[1].z)                    # |I|
+        N_obs = length(gp[1].y)                          # N
+        prior_temp = N_inducing / N_obs                  # T (R MAGI default)
+        inv_temp = 1.0 / prior_temp                     # 1/T
+        β_schedule = [inv_temp]
+        β = [inv_temp]
+        anneal_iter = [1]
         odegrad.γ = γ_init
         new(odegrad, gp, β, β_schedule, anneal_length, anneal_iter)
     end
@@ -336,3 +338,62 @@ end
 
 dfdt_mean(gm::AbstractGM) = [dfdt_mean(gp) for gp in gm.gp]
 dfdt_cov(gm::AbstractGM) = [dfdt_cov(gp) for gp in gm.gp]
+
+"""
+    set_bandsize!(gm::AbstractGM, b::Union{Nothing, Int})
+
+Set the band matrix bandwidth for e_cov approximation.
+`nothing` means dense (default). Typical values: 10-30.
+Call `cache_e_cov_chol!(gm)` after changing bandsize.
+"""
+function set_bandsize!(gm::AbstractGM, b::Union{Nothing, Int})
+    if gm isa RFFGM && b !== nothing
+        @warn "Band approximation is not applicable to RFFGM (RFF correlations are non-local). Ignoring bandsize."
+        return
+    end
+    gm.odegrad.bandsize = b
+end
+
+"""
+    cache_e_cov_chol!(gm::AbstractGM)
+
+Pre-compute and cache the Cholesky factorization of e_cov = dfdt_cov + γ²I
+for each GP component. If bandsize is set, truncates dfdt_cov to a banded matrix
+before computing Cholesky (improves numerical stability for small γ).
+"""
+function cache_e_cov_chol!(gm::AbstractGM)
+    γ = get_γ(gm)
+    # RFFGM: band approximation is invalid (RFF correlations are non-local)
+    bandsize = gm isa RFFGM ? nothing : gm.odegrad.bandsize
+    for gpk in gm.gp
+        cov_mat = dfdt_cov(gpk)
+        if bandsize !== nothing
+            N = size(cov_mat, 1)
+            B = BandedMatrix(Zeros(N, N), (bandsize, bandsize))
+            for j in 1:N
+                for i in max(1, j - bandsize):min(N, j + bandsize)
+                    B[i, j] = cov_mat[i, j]
+                end
+            end
+            e_cov = Symmetric(B + γ^2 * I)
+        else
+            e_cov = Hermitian(cov_mat + γ^2 * LinearAlgebra.I)
+        end
+        C = cholesky(e_cov; check=false)
+        if issuccess(C)
+            gpk.e_cov_chol = C
+        else
+            @warn "e_cov Cholesky failed (bandsize=$bandsize, γ=$γ), trying dense fallback"
+            e_cov_dense = Hermitian(cov_mat + γ^2 * LinearAlgebra.I)
+            C_dense = cholesky(e_cov_dense; check=false)
+            gpk.e_cov_chol = issuccess(C_dense) ? C_dense : nothing
+        end
+    end
+end
+
+"""Get cached e_cov Cholesky factors. Returns nothing if any is not cached."""
+function get_e_cov_chols(gm::AbstractGM)
+    chols = [gpk.e_cov_chol for gpk in gm.gp]
+    any(isnothing, chols) && return nothing
+    return chols
+end

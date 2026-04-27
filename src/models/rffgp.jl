@@ -26,6 +26,8 @@ mutable struct RFFGP
     w::Vector{Float64}               # weights of random fourier features
     dHdt::Matrix{Float64}            # gradient of the random fourier features with respect to the input (rows: length(z), cols: n_rff)
     dfdt_cov_cache::Matrix{Float64}  # cached Cov[df/dt] = dHdt Λw⁻¹ dHdt'
+    L::LowerTriangular{Float64, Matrix{Float64}}  # Cholesky factor of K = H Λw⁻¹ H' + σᵤ²I
+    e_cov_chol::Union{Nothing, Cholesky}  # cached Cholesky of e_cov = dfdt_cov + γ²I
     standardize::Bool                # whether to standardize the observations
     centralize::Bool                 # whether to centralize the observations
 
@@ -78,8 +80,11 @@ mutable struct RFFGP
             y_standardized = y
         end
 
+        K = H * (prior_Λw \ H') + σᵤ^2 * I
+        L = cholesky(Hermitian(K)).L
+
         return new(z, u, x, y, y_mean, y_std, y_standardized, σᵤ, σ, tσ, k,
-            n_rff, h, tϕ, blr, f, fz, f′, f′x, H, H′, w, dHdt, dfdt_cov_cache, standardize, centralize)
+            n_rff, h, tϕ, blr, f, fz, f′, f′x, H, H′, w, dHdt, dfdt_cov_cache, L, nothing, standardize, centralize)
     end
 end
 
@@ -96,6 +101,7 @@ function reconstruct_gp(gp::RFFGP;
         gp.σ = _σ
         gp.f′x = gp.f′(RowVecs(gp.x[:,:]), gp.σ^2)
     elseif isnothing(ϕ) && !isnothing(u)
+        gp.u = _u
         gp.f′ = BayesianLinearRegressors.posterior(gp.fz, _u)
         gp.σ = _σ
         gp.f′x = gp.f′(RowVecs(gp.x[:,:]), gp.σ^2)

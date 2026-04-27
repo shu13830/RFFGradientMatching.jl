@@ -43,16 +43,13 @@ function AbstractMCMC.step(rng::AbstractRNG,
         sample_target = blk.vars
         param_vec = pack_param_vec_from_dict(model, new_param_dict, sample_target)
         if blk isa HMCBlock
-            new_param_vecs, stats = AbstractMCMC.sample(rng, blk.h, blk.sampler.κ, param_vec, blk.n+1, verbose=false)
-            new_param_vec = new_param_vecs[end]
-            # Record acceptance (rolling window, R MAGI style)
-            record_accept!(blk, stats[end].is_accept)
-            # Record samples for metric adaptation only after annealing
+            # Per-dimension step size HMC (R MAGI style)
+            new_param_vec, accepted = adjust_and_step!(burnin, blk, param_vec)
+            record_accept!(blk, accepted)
             anneal_done = model.anneal_iter[1] >= model.anneal_length
             if burnin && anneal_done
                 record_sample!(blk, new_param_vec)
             end
-            adjust_ϵ_heuristically!(burnin, blk)
         elseif blk isa ESSBlock || blk isa GESSBlock
             new_param_vecs = EllipticalSliceSampling.sample(rng, blk.model, blk.sampler, blk.n, init_params=param_vec)
             new_param_vec = new_param_vecs[end]

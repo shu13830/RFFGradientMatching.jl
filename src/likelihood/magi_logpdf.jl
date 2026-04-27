@@ -72,13 +72,17 @@ function ulogpdf(gm::MAGI, param_dict::Dict{Symbol,Any};
     lγ = logpdf_γ(gm, γ)
     lσ = logpdf_σ(gm, σ)
     lϕ = logpdf_ϕ(gm, ϕ)
-    le = gm.β[1] * ulogpdf_e(gm, X, θ, γ)
+    # MAGI prior tempering: β = 1/T where T = |I|/N_obs
+    # GP prior (lx) and ODE constraint (le) are tempered; ly, lθ, lσ are not
+    inv_T = gm.β[1]
+    le = inv_T * ulogpdf_e(gm, X, θ, γ)
+    lx_tempered = inv_T * lx
 
     if merge_output
-        return lx + ly + lθ + lγ + lσ + lϕ + le
+        return lx_tempered + ly + lθ + lγ + lσ + lϕ + le
     else
         return Dict(
-            :logpdf_x => lx,
+            :logpdf_x => lx_tempered,
             :logpdf_y => ly,
             :logpdf_θ => lθ,
             :logpdf_γ => lγ,

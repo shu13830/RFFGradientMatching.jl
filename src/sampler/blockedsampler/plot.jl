@@ -24,9 +24,20 @@ function logdens_history_plot_str(logdens_history::Vector{Float64})
 end
 
 function compiled_output(i::Int, n_iter::Int, logdens_history::Vector{Float64})
+    in_terminal = is_terminal()
+    in_jupyter  = isdefined(Main, :IJulia) && isdefined(Main.IJulia, :clear_output)
+    !in_terminal && !in_jupyter && return
+
     progress_line = custom_progress_bar(i, n_iter)
-    plot_str = logdens_history_plot_str(logdens_history)
     ld = logdens_history[end]
+
+    vals = filter(isfinite, logdens_history)
+    plot_str = if length(vals) >= 2 && minimum(vals) < maximum(vals)
+        logdens_history_plot_str(vals)
+    else
+        "(plot unavailable)"
+    end
+
     output = """
     $progress_line
     Latest logdensity: $(round(ld, digits=3))
@@ -34,7 +45,7 @@ function compiled_output(i::Int, n_iter::Int, logdens_history::Vector{Float64})
     $plot_str
     """
 
-    if is_terminal()
+    if in_terminal
         # In CMD (terminal), screen is cleared with ANSI escape sequence and output is in plain text
         print("\033[H\033[J")
         println(output)

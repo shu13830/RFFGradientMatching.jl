@@ -149,26 +149,38 @@ function ∇ulogpdf(gm::GPGM, param_dict::Dict{Symbol,Any}, sample_target::Vecto
         gy_dy = ∇y_logpdf_y(gp, Y_std, X, σ)
         push!(grad, gy_dy)
     end
-    if :X in sample_target
+    if :X in sample_target && :θ in sample_target && gm.β[1] != 0.0
+        # Combined X+θ gradient (avoids duplicate ODE/Jacobian computation)
+        ge_dx, ge_dtθ = ∇txθ_ulogpdf_e(gm.odegrad, gp, X, θ, γ)
+        ge_dx .*= gm.β[1]
+        ge_dtθ .*= gm.β[1]
         gy_dx = ∇tx_logpdf_y(gp, Y_std, X, σ)
         gx_dx = ∇tx_logpdf_x(gp, X)
-        if gm.β[1] == 0.0
-            ge_dx = zeros(length(gx_dx))
-        else
-            ge_dx = gm.β[1] * ∇tx_ulogpdf_e(gm.odegrad, gp, X, θ, γ)  # NOTE: weighted by the inverse temperature
-        end
-        @assert length(gx_dx) == length(gy_dx) == length(ge_dx)
         push!(grad, gx_dx .+ gy_dx .+ ge_dx)
-    end
-    if :θ in sample_target
         gθ_dtθ = ∇tθ_logpdf_θ(gm.odegrad, θ, transformed_θ)
-        if gm.β[1] == 0.0
-            ge_dtθ = zeros(length(gθ_dtθ))
-        else
-            ge_dtθ = gm.β[1] * ∇tθ_ulogpdf_e(gm.odegrad, gp, X, θ, γ)  # NOTE: weighted by the inverse temperature
-        end
-        @assert length(gθ_dtθ) == length(ge_dtθ)
         push!(grad, gθ_dtθ .+ ge_dtθ)
+    else
+        if :X in sample_target
+            gy_dx = ∇tx_logpdf_y(gp, Y_std, X, σ)
+            gx_dx = ∇tx_logpdf_x(gp, X)
+            if gm.β[1] == 0.0
+                ge_dx = zeros(length(gx_dx))
+            else
+                ge_dx = gm.β[1] * ∇tx_ulogpdf_e(gm.odegrad, gp, X, θ, γ)
+            end
+            @assert length(gx_dx) == length(gy_dx) == length(ge_dx)
+            push!(grad, gx_dx .+ gy_dx .+ ge_dx)
+        end
+        if :θ in sample_target
+            gθ_dtθ = ∇tθ_logpdf_θ(gm.odegrad, θ, transformed_θ)
+            if gm.β[1] == 0.0
+                ge_dtθ = zeros(length(gθ_dtθ))
+            else
+                ge_dtθ = gm.β[1] * ∇tθ_ulogpdf_e(gm.odegrad, gp, X, θ, γ)
+            end
+            @assert length(gθ_dtθ) == length(ge_dtθ)
+            push!(grad, gθ_dtθ .+ ge_dtθ)
+        end
     end
     if :γ in sample_target
         gγ_dtγ = ∇tγ_logpdf_γ(gm.odegrad, γ, transformed_γ)
@@ -237,8 +249,8 @@ end
 
 # --- x ---
 # TESTED
-∇tx_logpdf_x(gp::Vector{GP}, X::AbstractMatrix{<:Real}) = 
-    reduce(vcat, [gpk.L' * gradlogpdf(gpk.fz, xk) for (gpk, xk) in zip(gp, eachrow(X))])
+∇tx_logpdf_x(gp::Vector{GP}, X::AbstractMatrix{<:Real}) =
+    reduce(vcat, [gpk.L' * _gradlogpdf_mvn_cached(gpk.L, xk) for (gpk, xk) in zip(gp, eachrow(X))])
 ∇tx_logpdf_x(gm::Union{GPGM,MAGI}, X::AbstractMatrix{<:Real}) = ∇tx_logpdf_x(gm.gp, X)
 
 # TESTED
@@ -257,6 +269,65 @@ function ∇tx_logpdf_y(gp::Vector{GP}, Y_std::AbstractMatrix{<:Real}, X::Abstra
 end
 ∇tx_logpdf_y(gm::Union{GPGM,MAGI}, Y_std::AbstractMatrix{<:Real}, X::AbstractMatrix{<:Real}, σ::AbstractVector{<:Real}) = ∇tx_logpdf_y(gm.gp, Y_std, X, σ)
 
+
+"""Combined gradient of ulogpdf_e w.r.t. both X and θ, sharing intermediate computations."""
+function ∇txθ_ulogpdf_e(
+    odegrad::ODEGrad,
+    gp::Vector{GP},
+    X::AbstractMatrix{<:Real},
+    θ::AbstractVector{<:Real},
+    γ::T
+) where {T<:Real}
+    X_destandardized = calc_destandardized_X(gp, X)
+    y_std = get_y_std(gp)
+    ẋode = eval_ẋ(odegrad, X_destandardized, θ) ./ y_std  # K x N
+    ẋgp_mean = dfdt_mean(gp, X)
+    ẋgp_cov = dfdt_cov(gp)
+
+    # Shared: compute ∇ẋgp_e (gradient of logpdf w.r.t. gradient error)
+    ∇ẋgp_e_list = []
+    for (k, ẋode_k) in enumerate(eachrow(ẋode))
+        e = ẋgp_mean[k] - ẋode_k
+        if gp[k].e_cov_chol !== nothing
+            C = gp[k].e_cov_chol
+        else
+            e_cov = Hermitian(ẋgp_cov[k] + γ^2 * LinearAlgebra.I)
+            C = cholesky(e_cov; check=false)
+        end
+        if !issuccess(C)
+            push!(∇ẋgp_e_list, zeros(length(e)))
+        else
+            push!(∇ẋgp_e_list, _gradlogpdf_mvn_cached(C.L, e))
+        end
+    end
+    ∇ẋgp_e = reduce(vcat, [v' for v in ∇ẋgp_e_list])  # K x N
+    ∇ẋode_e = - ∇ẋgp_e
+
+    # ∇X part
+    ∇x_ẋode = eval_dẋdx(odegrad, X_destandardized, θ, y_std)  # K x K x N
+    ∇x_e = []
+    for (k, gpk) in enumerate(gp)
+        ∇xk_ẋgp = gpk.K′ᵀK⁻¹
+        ∇xk_e = ∇xk_ẋgp' * ∇ẋgp_e[k,:] +
+            sum(∇ẋode_e .* ∇x_ẋode[:,k,:], dims=1)[:]
+        push!(∇x_e, gpk.L' * ∇xk_e)
+    end
+    grad_x = reduce(vcat, ∇x_e)
+
+    # ∇θ part (reuses ∇ẋode_e)
+    ∇θ_ẋode = eval_dẋdθ(odegrad, X_destandardized, θ, y_std)  # K x n(θ) x N
+    ∇tθ_e = []
+    for (i, θi) in enumerate(θ)
+        ∇θk_e = sum(∇ẋode_e .* ∇θ_ẋode[:,i,:])
+        ∇tθk_e = ∇θk_e / odegrad.tθ[i].dtv_dv(θi)
+        push!(∇tθ_e, ∇tθk_e)
+    end
+
+    return grad_x, ∇tθ_e
+end
+∇txθ_ulogpdf_e(gm::Union{GPGM,MAGI}, X::AbstractMatrix{<:Real}, θ::AbstractVector{<:Real}, γ::T) where {T<:Real} =
+    ∇txθ_ulogpdf_e(gm.odegrad, gm.gp, X, θ, γ)
+
 # TESTED
 function ∇tx_ulogpdf_e(
     odegrad::ODEGrad,
@@ -273,8 +344,17 @@ function ∇tx_ulogpdf_e(
     ∇ẋgp_e = []
     for (k, ẋode_k) in enumerate(eachrow(ẋode))
         e = ẋgp_mean[k] - ẋode_k  # gradient error
-        e_cov = Hermitian(ẋgp_cov[k] + γ^2 * LinearAlgebra.I)
-        push!(∇ẋgp_e, gradlogpdf(MvNormal(zeros(length(e)), e_cov), e))  # N length Vector
+        if gp[k].e_cov_chol !== nothing
+            C = gp[k].e_cov_chol
+        else
+            e_cov = Hermitian(ẋgp_cov[k] + γ^2 * LinearAlgebra.I)
+            C = cholesky(e_cov; check=false)
+        end
+        if !issuccess(C)
+            push!(∇ẋgp_e, zeros(length(e)))
+        else
+            push!(∇ẋgp_e, _gradlogpdf_mvn_cached(C.L, e))
+        end  # N length Vector
     end
     ∇ẋgp_e = reduce(vcat, ∇ẋgp_e')  # K x N
     ∇ẋode_e = - ∇ẋgp_e  # K x N
@@ -295,7 +375,7 @@ end
 # --- w ---
 # TESTED
 ∇w_logpdf_x(gp::Vector{RFFGP}, X::AbstractMatrix{<:Real}) =
-    reduce(vcat, [gpk.H' * gradlogpdf(gpk.fz, xk) for (gpk, xk) in zip(gp, eachrow(X))])
+    reduce(vcat, [gpk.H' * _gradlogpdf_mvn_cached(gpk.L, collect(xk)) for (gpk, xk) in zip(gp, eachrow(X))])
 ∇w_logpdf_x(gm::RFFGM, X::AbstractMatrix{<:Real}) = ∇w_logpdf_x(gm.gp, X)
 
 # TESTED
@@ -332,8 +412,17 @@ function ∇w_ulogpdf_e(
     ∇ẋgp_e = []
     for (k, ẋode_k) in enumerate(eachrow(ẋode))
         e = ẋgp_mean[k] - ẋode_k  # gradient error
-        e_cov = Hermitian(ẋgp_cov[k] + γ^2 * LinearAlgebra.I)
-        push!(∇ẋgp_e, gradlogpdf(MvNormal(zeros(length(e)), e_cov), e))  # N length Vector
+        if gp[k].e_cov_chol !== nothing
+            C = gp[k].e_cov_chol
+        else
+            e_cov = Hermitian(ẋgp_cov[k] + γ^2 * LinearAlgebra.I)
+            C = cholesky(e_cov; check=false)
+        end
+        if !issuccess(C)
+            push!(∇ẋgp_e, zeros(length(e)))
+        else
+            push!(∇ẋgp_e, _gradlogpdf_mvn_cached(C.L, e))
+        end  # N length Vector
     end
     ∇ẋgp_e = reduce(vcat, ∇ẋgp_e')  # K x N
     ∇ẋode_e = - ∇ẋgp_e  # K x N
@@ -438,8 +527,17 @@ function ∇tθ_ulogpdf_e(
     ∇ẋgp_e = []
     for (k, ẋode_k) in enumerate(eachrow(ẋode))
         e = ẋgp_mean[k] - ẋode_k  # gradient error
-        e_cov = Hermitian(ẋgp_cov[k] + γ^2 * LinearAlgebra.I)
-        push!(∇ẋgp_e, gradlogpdf(MvNormal(zeros(length(e)), e_cov), e))  # N length Vector
+        if gp[k].e_cov_chol !== nothing
+            C = gp[k].e_cov_chol
+        else
+            e_cov = Hermitian(ẋgp_cov[k] + γ^2 * LinearAlgebra.I)
+            C = cholesky(e_cov; check=false)
+        end
+        if !issuccess(C)
+            push!(∇ẋgp_e, zeros(length(e)))
+        else
+            push!(∇ẋgp_e, _gradlogpdf_mvn_cached(C.L, e))
+        end  # N length Vector
     end
     ∇ẋgp_e = reduce(vcat, ∇ẋgp_e')  # K x N
     ∇ẋode_e = - ∇ẋgp_e  # K x N
@@ -472,8 +570,17 @@ function ∇tθ_ulogpdf_e(
     ∇ẋgp_e = []
     for (k, ẋode_k) in enumerate(eachrow(ẋode))
         e = ẋgp_mean[k] - ẋode_k  # gradient error
-        e_cov = Hermitian(ẋgp_cov[k] + γ^2 * LinearAlgebra.I)
-        push!(∇ẋgp_e, gradlogpdf(MvNormal(zeros(length(e)), e_cov), e))  # N length Vector
+        if gp[k].e_cov_chol !== nothing
+            C = gp[k].e_cov_chol
+        else
+            e_cov = Hermitian(ẋgp_cov[k] + γ^2 * LinearAlgebra.I)
+            C = cholesky(e_cov; check=false)
+        end
+        if !issuccess(C)
+            push!(∇ẋgp_e, zeros(length(e)))
+        else
+            push!(∇ẋgp_e, _gradlogpdf_mvn_cached(C.L, e))
+        end  # N length Vector
     end
     ∇ẋgp_e = reduce(vcat, ∇ẋgp_e')  # K x N
     ∇ẋode_e = - ∇ẋgp_e  # K x N
@@ -521,8 +628,12 @@ function ∇tγ_ulogpdf_e(
     for (k, ẋode_k) in enumerate(eachrow(ẋode))
         e = ẋgp_mean[k] - ẋode_k  # gradient error
         e_cov = Hermitian(ẋgp_cov[k] + γ^2 * LinearAlgebra.I)
-        ∇Σ_e = gradlogpdf_dΣ(MvNormal(zeros(length(e)), e_cov), e)  # N x N
-        push!(∇tγ_e, sum(diag(∇Σ_e) * 2*γ / odegrad.tγ.dtv_dv(γ)))
+        if !_safe_cholesky(e_cov)
+            push!(∇tγ_e, 0.0)
+        else
+            ∇Σ_e = gradlogpdf_dΣ(MvNormal(zeros(length(e)), e_cov), e)  # N x N
+            push!(∇tγ_e, sum(diag(∇Σ_e) * 2*γ / odegrad.tγ.dtv_dv(γ)))
+        end
     end
     return [sum(∇tγ_e)]
 end
@@ -547,8 +658,12 @@ function ∇tγ_ulogpdf_e(
     for (k, ẋode_k) in enumerate(eachrow(ẋode))
         e = ẋgp_mean[k] - ẋode_k  # gradient error
         e_cov = Hermitian(ẋgp_cov[k] + γ^2 * LinearAlgebra.I)
-        ∇Σ_e = gradlogpdf_dΣ(MvNormal(zeros(length(e)), e_cov), e)  # N x N
-        push!(∇tγ_e, sum(diag(∇Σ_e) * 2*γ / odegrad.tγ.dtv_dv(γ)))
+        if !_safe_cholesky(e_cov)
+            push!(∇tγ_e, 0.0)
+        else
+            ∇Σ_e = gradlogpdf_dΣ(MvNormal(zeros(length(e)), e_cov), e)  # N x N
+            push!(∇tγ_e, sum(diag(∇Σ_e) * 2*γ / odegrad.tγ.dtv_dv(γ)))
+        end
     end
     return [sum(∇tγ_e)]
 end

@@ -6,12 +6,12 @@ mutable struct HMCBlock <: AbstractSampleBlock
     type::Symbol
     D::Int
     n::Int
-    # R MAGI-style adaptation state
+    # R MAGI-style per-dimension adaptation state
     accept_history::Vector{Bool}              # rolling acceptance history (last ≤100)
-    step_low::Float64                          # base step size (R MAGI stepLow)
-    sample_history::Vector{Vector{Float64}}   # buffer for M⁻¹ adaptation
-    adapt_interval::Int                        # M⁻¹ adaptation interval
-    iter_counter::Int                          # iterations since last M⁻¹ adaptation
+    step_low::Vector{Float64}                  # per-dimension base step size (R MAGI stepLow)
+    sample_history::Vector{Vector{Float64}}   # buffer for step size adaptation
+    adapt_interval::Int                        # adaptation interval
+    iter_counter::Int                          # iterations since last adaptation
 end
 
 """Sample Block for Metropolis-Hastings"""
@@ -54,10 +54,8 @@ Base.show(io::IO, blk::HMCBlock) = print(
     D=$(blk.D),
     n=$(blk.n),
     vars=$(blk.vars),
-    step_low=$(blk.step_low),
-    metric=$(blk.h.metric),
-    integrator=$(blk.sampler.κ.τ.integrator),
-    termination_criterion=$(blk.sampler.κ.τ.termination_criterion),
+    step_low_mean=$(round(StatsBase.mean(blk.step_low), sigdigits=4)),
+    n_leapfrog=$(blk.sampler.κ.τ.termination_criterion.L),
 )")
 
 Base.show(io::IO, blk::MHBlock) = print(
@@ -101,7 +99,7 @@ function HMCBlock(mod::AbstractGM,
     kernel = AdvancedHMC.HMCKernel(AdvancedHMC.Trajectory{EndPointTS}(integrator, AdvancedHMC.FixedNSteps(n_leapfrog)))
     sampler = AdvancedHMC.HMCSampler(kernel, metric, adaptor)
     HMCBlock(vars, hamiltonian, sampler, :HMC, D, 1,
-             Bool[], step_size, Vector{Float64}[], adapt_interval, 0)
+             Bool[], fill(step_size, D), Vector{Float64}[], adapt_interval, 0)
 end
 
 function NUTSBlock(mod::AbstractGM,

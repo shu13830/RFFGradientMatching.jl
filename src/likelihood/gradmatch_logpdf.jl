@@ -1,3 +1,9 @@
+"""Safe Cholesky check for gradient matching covariance. Returns false if not positive definite."""
+function _safe_cholesky(e_cov::Hermitian)
+    C = cholesky(e_cov; check=false)
+    return issuccess(C)
+end
+
 function ulogpdf(gm::RFFGM, param_dict::Dict{Symbol,Any}; 
     sample_target::Union{Nothing, Vector{Symbol}}=nothing, 
     merge_output::Bool=true
@@ -112,9 +118,23 @@ end
 function logpdf_x(gp::Union{Vector{GP},Vector{RFFGP}}, X::AbstractMatrix{<:Real})
     lpd = 0.0
     for (k, xk) in enumerate(eachrow(X))
-        lpd += logpdf(gp[k].fz, xk)
+        lpd += _logpdf_mvn_cached(gp[k].L, collect(xk))
     end
     return lpd
+end
+
+"logpdf of MvNormal(0, K) using pre-computed Cholesky factor L where K = L L'"
+function _logpdf_mvn_cached(L::AbstractMatrix{<:Real}, x::AbstractVector{<:Real})
+    N = length(x)
+    v = L \ x  # forward solve: O(N²) dense, O(N·b) banded
+    return -0.5 * (N * log(2π) + 2 * sum(log.(diag(L))) + dot(v, v))
+end
+
+"gradlogpdf of MvNormal(0, K) w.r.t. x, using pre-computed Cholesky factor L"
+function _gradlogpdf_mvn_cached(L::AbstractMatrix{<:Real}, x::AbstractVector{<:Real})
+    # ∇x log p(x) = -K⁻¹ x = -(L Lᵀ)⁻¹ x = -Lᵀ⁻¹ (L⁻¹ x)
+    v = L \ x
+    return -(L' \ v)
 end
 logpdf_x(gm::GPGM, X::AbstractMatrix{<:Real}, ϕ::AbstractMatrix{<:Real}) = logpdf_x(reconstruct_gp(gm.gp, ϕ=ϕ), X)
 logpdf_x(gm::GPGM, X::AbstractMatrix{<:Real}) = logpdf_x(gm.gp, X)
@@ -184,7 +204,26 @@ function ulogpdf_e(
     for (k, fk) in enumerate(eachrow(ẋode))
         e = fk - ẋgp_mean[k]  # gradient error
         e_cov = Hermitian(ẋgp_cov[k] + γ^2 * LinearAlgebra.I)
-        lpd += logpdf(MvNormal(zeros(N), e_cov), e)
+        C = cholesky(e_cov; check=false)
+        if !issuccess(C)
+            return -Inf
+        end
+        lpd += _logpdf_mvn_cached(C.L, e)
+    end
+    return lpd
+end
+
+"ulogpdf_e using pre-cached Cholesky factors (for fixed ϕ and γ)"
+function ulogpdf_e(
+    ẋode::Matrix{T1},
+    ẋgp_mean::Vector{Vector{T2}},
+    e_cov_chols::Vector{<:Cholesky}
+) where {T1<:Real, T2<:Real}
+    K, N = size(ẋode)
+    lpd = 0.0
+    for (k, fk) in enumerate(eachrow(ẋode))
+        e = fk - ẋgp_mean[k]
+        lpd += _logpdf_mvn_cached(e_cov_chols[k].L, e)
     end
     return lpd
 end
@@ -198,7 +237,13 @@ function ulogpdf_e(
 ) where {T<:Real}
     X_destandardized = calc_destandardized_X(gp, X)
     ẋode = eval_ẋ(odegrad, X_destandardized, θ) ./ get_y_std(gp)  # K x N
-    return ulogpdf_e(ẋode, dfdt_mean(gp, X), dfdt_cov(gp), γ)
+        # Use cached e_cov Cholesky if available
+    chols = [gpk.e_cov_chol for gpk in gp]
+    if all(!isnothing, chols)
+        return ulogpdf_e(ẋode, dfdt_mean(gp, X), chols)
+    else
+        return ulogpdf_e(ẋode, dfdt_mean(gp, X), dfdt_cov(gp), γ)
+    end
 end
 ulogpdf_e(gm::GPGM, X::AbstractMatrix{<:Real}, θ::AbstractVector{<:Real}, γ::T, ϕ::AbstractMatrix{<:Real}) where {T<:Real} =
     ulogpdf_e(gm.odegrad, reconstruct_gp(gm.gp; ϕ=ϕ), X, θ, γ)
