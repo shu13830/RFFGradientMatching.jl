@@ -2,18 +2,20 @@
 # PGM 2026 — Figure and Table Generation
 #
 # Usage:
-#   julia --project=. experiments/pgm2026/plot_figures.jl [--output_dir figures/]
+#   julia --project=. scripts/plot_figures.jl [--output_dir figures/]
 #
-# Reads CSV results from experiments/pgm2026/results/exp{N}/ and
+# Reads CSV results from scripts/results/exp{N}/ and
 # baselines/magi/results/ to generate all paper figures and table summaries.
 # -----------------------------------------------------------------
 
 using CSV, DataFrames, Statistics, Printf, ArgParse
+using LaTeXStrings
+using MCMCDiagnosticTools
 using Plots; gr()
 
 # ── Paths ────────────────────────────────────────────────────────
 const RESULTS_BASE = joinpath(@__DIR__, "results")
-const MAGI_RESULTS = joinpath(@__DIR__, "..", "..", "baselines", "magi", "results")
+const MAGI_RESULTS = joinpath(@__DIR__, "..", "baselines", "magi", "results")
 
 # ── Style ────────────────────────────────────────────────────────
 # PGM/PMLR: 1-column width ≈ 6.75 inch
@@ -66,7 +68,212 @@ function fmt_mean_se(m, se; digits=3)
     Printf.format(fmt, m, se)
 end
 
-# ── Fig.1: Convergence Comparison (Exp1) ─────────────────────────
+# ── Fig.1: MCMC trajectory in (x(t_i), x(t_{i+1})) plane ────────
+# Visualises how efficiently RFFGM walks through the x-x joint posterior
+# compared with GPGM (where GP prior smoothness creates strong adjacent-state
+# dependency). Data produced by run_exp1_state_scatter.jl (LV, N=50).
+
+function plot_fig1_state_scatter(output_dir::String;
+        seed::Int=42, dim::Int=1, pair_i::Int=7, traj_n::Int=300)
+    @info "Generating Fig.1 (state-space MCMC trajectory)"
+    dir = joinpath(RESULTS_BASE, "exp1_scatter")
+    if !isdir(dir)
+        @warn "Directory $dir not found — skipping Fig.1"
+        return
+    end
+    meta_f = joinpath(dir, "exp1s_meta.csv")
+    run_f  = joinpath(dir, "exp1s_run.csv")
+    (!isfile(meta_f) || !isfile(run_f)) && (@warn "missing meta/run CSV"; return)
+    df_meta = CSV.read(meta_f, DataFrame)
+    df_run  = CSV.read(run_f, DataFrame)
+    N      = df_run.N[1]
+    t_peak = df_run.t_peak_idx[1]
+    # Default: pair centred at (t_peak, t_peak+1)
+    i = pair_i == 0 ? clamp(t_peak, 1, N-1) : pair_i
+    j = i + 1
+    t_i = df_meta.t[i]; t_j = df_meta.t[j]
+    clean_ref = dim == 1 ? df_meta.x1_clean : df_meta.x2_clean
+
+    function load_method(method)
+        f = joinpath(dir, "exp1s_$(method)_seed$(seed)_chain.csv")
+        isfile(f) || return nothing
+        df = CSV.read(f, DataFrame)
+        sub = sort!(filter(r -> r.dim == dim, df), :iter)
+        return sub
+    end
+
+    dfs = Dict(m => load_method(m) for m in ("GPGM", "RFFGM"))
+    (dfs["GPGM"] === nothing || dfs["RFFGM"] === nothing) && return
+
+    # Global axis bounds from post-warmup of both methods
+    xlo = Inf; xhi = -Inf; ylo = Inf; yhi = -Inf
+    for m in ("GPGM", "RFFGM")
+        sub = dfs[m]
+        post = filter(r -> r.is_warmup == 0, sub)
+        xi = post[!, Symbol("x_t$i")]; xj = post[!, Symbol("x_t$j")]
+        xlo = min(xlo, minimum(xi)); xhi = max(xhi, maximum(xi))
+        ylo = min(ylo, minimum(xj)); yhi = max(yhi, maximum(xj))
+    end
+    xpad = (xhi - xlo) * 0.05; ypad = (yhi - ylo) * 0.05
+    xlim = (xlo - xpad, xhi + xpad); ylim = (ylo - ypad, yhi + ypad)
+
+    plts = Plots.Plot[]
+    panel_order = ("RFFGM", "GPGM")
+    panel_titles = Dict("RFFGM" => "(a) RFFGM (Ours)", "GPGM" => "(b) GPGM")
+    tl_global = 0
+    ess_safe(x) = try
+        Float64(MCMCDiagnosticTools.ess(reshape(x, :, 1, 1))[1])
+    catch
+        NaN
+    end
+    for (pidx, method) in enumerate(panel_order)
+        sub = dfs[method]
+        post = filter(r -> r.is_warmup == 0, sub)
+        xi = post[!, Symbol("x_t$i")]; xj = post[!, Symbol("x_t$j")]
+
+        step = mean(sqrt.(diff(xi).^2 .+ diff(xj).^2))
+        ess_val = min(ess_safe(xi), ess_safe(xj))
+
+        xlab = latexstring(@sprintf("x_{%d}(t{=}%.2f)", dim, t_i))
+        ylab = pidx == 1 ? latexstring(@sprintf("x_{%d}(t{=}%.2f)", dim, t_j)) : ""
+        p = plot(; xlabel=xlab, ylabel=ylab, title=panel_titles[method],
+            xlims=xlim, ylims=ylim, legend=false, colorbar=false)
+
+        # Background: post-warmup posterior density (slightly darker for visibility)
+        scatter!(p, xi, xj;
+            color=RGB(0.78, 0.78, 0.78), markersize=1.3, markerstrokewidth=0,
+            alpha=0.55, label="")
+
+        # Trajectory: consecutive post-warmup samples — dots only, gradient
+        tl = min(traj_n, length(xi))
+        tl_global = tl
+        iters = collect(1:tl)
+        scatter!(p, xi[1:tl], xj[1:tl];
+            zcolor=iters, c=:viridis, clims=(1, tl), colorbar=false,
+            markersize=2.2, markerstrokewidth=0, alpha=0.95, label="")
+
+        # True value (black star)
+        scatter!(p, [clean_ref[i]], [clean_ref[j]];
+            marker=:star5, markersize=7, color=:black,
+            markerstrokecolor=:black, markerstrokewidth=1, label="")
+
+        annotate!(p, xlim[1] + xpad*2, ylim[2] - ypad*2,
+            text(@sprintf("step = %.3f   ESS = %.0f", step, ess_val), 8, :left))
+        push!(plts, p)
+    end
+
+    # Shared horizontal colourbar below the two equal-sized panels
+    cb = heatmap(reshape(1:tl_global, 1, :);
+        c=:viridis, clims=(1, tl_global),
+        yaxis=false, yticks=false,
+        xticks=([1, div(tl_global, 4), div(tl_global, 2), 3*div(tl_global, 4), tl_global],
+                ["1", "$(div(tl_global,4))", "$(div(tl_global,2))",
+                 "$(3*div(tl_global,4))", "$tl_global"]),
+        xlabel="iteration", colorbar=false, framestyle=:box)
+
+    l = @layout [grid(1, 2); a{0.12h}]
+    fig = plot(plts[1], plts[2], cb; layout=l,
+        size=(FIG_W[1], round(Int, FIG_W[2] * 0.85)),
+        bottom_margin=1Plots.mm)
+    path = joinpath(output_dir, "fig1_state_scatter.pdf")
+    savefig(fig, path)
+    @info "Saved $path  (dim=$dim pair=($i,$j) t=($(t_i),$(t_j)))"
+end
+
+# ── Fig.1 (legacy): MCMC Trajectory in (x₁(t_peak), θ_a) plane ──
+
+function plot_fig1_trajectory(output_dir::String; seed::Int=42)
+    @info "Generating Fig.1 (MCMC trajectory)"
+    dir = joinpath(RESULTS_BASE, "exp1")
+    if !isdir(dir)
+        @warn "Directory $dir not found — skipping Fig.1 trajectory"
+        return
+    end
+
+    # Load true values
+    true_file = joinpath(dir, "exp1_true_values_seed$(seed).csv")
+    df_true = load_csv(true_file)
+    if df_true === nothing; return; end
+    x_true = df_true.x1_tpeak_true[1]
+    θ_true = df_true.theta_a_true[1]
+
+    plts = Plots.Plot[]
+    xlims_global = (Inf, -Inf)
+    ylims_global = (Inf, -Inf)
+
+    # First pass: compute shared axis limits
+    for method in ["GPGM", "RFFGM"]
+        bg_file = joinpath(dir, "exp1_background_$(method)_seed$(seed).csv")
+        df_bg = load_csv(bg_file)
+        if df_bg === nothing; continue; end
+        xmin, xmax = extrema(df_bg.x1_tpeak)
+        ymin, ymax = extrema(df_bg.theta_a)
+        xlims_global = (min(xlims_global[1], xmin), max(xlims_global[2], xmax))
+        ylims_global = (min(ylims_global[1], ymin), max(ylims_global[2], ymax))
+    end
+    # Add margin
+    xpad = (xlims_global[2] - xlims_global[1]) * 0.05
+    ypad = (ylims_global[2] - ylims_global[1]) * 0.05
+    xlims_global = (xlims_global[1] - xpad, xlims_global[2] + xpad)
+    ylims_global = (ylims_global[1] - ypad, ylims_global[2] + ypad)
+
+    for (panel_idx, method) in enumerate(["GPGM", "RFFGM"])
+        bg_file = joinpath(dir, "exp1_background_$(method)_seed$(seed).csv")
+        traj_file = joinpath(dir, "exp1_trajectory_$(method)_seed$(seed).csv")
+        df_bg = load_csv(bg_file)
+        df_traj = load_csv(traj_file)
+        if df_bg === nothing || df_traj === nothing; continue; end
+
+        c = method_color(method)
+
+        p = plot(; xlabel="x₁(t_peak)", ylabel=panel_idx == 1 ? "θ_a" : "",
+            title="($('a' + panel_idx - 1)) $method",
+            xlims=xlims_global, ylims=ylims_global, aspect_ratio=:auto)
+
+        # Background: all samples (light grey)
+        scatter!(p, df_bg.x1_tpeak, df_bg.theta_a;
+            color=:lightgray, markersize=1, markerstrokewidth=0,
+            alpha=0.3, label="")
+
+        # Trajectory: consecutive samples with colored line
+        plot!(p, df_traj.x1_tpeak, df_traj.theta_a;
+            color=c, linewidth=1.5, alpha=0.8, label="")
+        scatter!(p, df_traj.x1_tpeak, df_traj.theta_a;
+            color=c, markersize=2.5, markerstrokewidth=0, alpha=0.8, label="")
+
+        # Start marker (square)
+        scatter!(p, [df_traj.x1_tpeak[1]], [df_traj.theta_a[1]];
+            marker=:rect, markersize=6, color=c, markerstrokecolor=:black,
+            markerstrokewidth=1.5, label="Start")
+
+        # End marker (diamond)
+        scatter!(p, [df_traj.x1_tpeak[end]], [df_traj.theta_a[end]];
+            marker=:diamond, markersize=6, color=c, markerstrokecolor=:black,
+            markerstrokewidth=1.5, label="End")
+
+        # True value (star)
+        scatter!(p, [x_true], [θ_true];
+            marker=:star5, markersize=10, color=:gold, markerstrokecolor=:black,
+            markerstrokewidth=1.5, label="True")
+
+        # Mean step size annotation
+        steps = [sqrt((df_traj.x1_tpeak[i+1]-df_traj.x1_tpeak[i])^2 +
+                       (df_traj.theta_a[i+1]-df_traj.theta_a[i])^2)
+                 for i in 1:nrow(df_traj)-1]
+        ms = @sprintf("%.3f", mean(steps))
+        annotate!(p, xlims_global[2] - xpad*2, ylims_global[1] + ypad*2,
+            text("step = $ms", 7, :right))
+
+        push!(plts, p)
+    end
+
+    fig = plot(plts...; layout=(1, 2), size=(FIG_W[1], round(Int, FIG_W[2] * 1.0)))
+    path = joinpath(output_dir, "mcmc_trajectory.pdf")
+    savefig(fig, path)
+    @info "Saved $path"
+end
+
+# ── Fig.1 (old): Convergence Comparison (Exp1) ──────────────────
 
 function plot_fig1(output_dir::String)
     @info "Generating Fig.1 (Exp1: Convergence)"
@@ -348,6 +555,56 @@ function plot_appfig3(output_dir::String)
     @info "Saved $path"
 end
 
+# ── App.G: γ Sensitivity (Exp-γ) ─────────────────────────────────
+
+function plot_gamma_sensitivity(output_dir::String)
+    @info "Generating App.G (Exp-γ: γ sensitivity)"
+    df = load_csv(joinpath(RESULTS_BASE, "exp_gamma", "exp_gamma_summary.csv"))
+    if df === nothing
+        @warn "No exp_gamma_summary.csv — skipping App.G"
+        return
+    end
+
+    # Aggregate by method × γ
+    gdf = combine(groupby(df, [:method, :gamma]),
+        :rmsd => mean => :rmsd_mean,
+        :rmsd => (x -> std(x)/sqrt(length(x))) => :rmsd_se,
+        :ess_mean => (x -> mean(filter(isfinite, x))) => :ess_avg,
+        :ess_mean => (x -> let v=filter(isfinite, x); length(v)>1 ? std(v)/sqrt(length(v)) : 0.0 end) => :ess_se,
+        :rhat_max => (x -> mean(filter(isfinite, x))) => :rhat_avg)
+    sort!(gdf, [:method, :gamma])
+
+    p1 = plot(; xlabel="γ", ylabel="RMSD", title="Parameter Accuracy",
+        xscale=:log10, legend=:topright)
+    p2 = plot(; xlabel="γ", ylabel="Mean ESS", title="Sampling Efficiency",
+        xscale=:log10, yscale=:log10, legend=:bottomright)
+    p3 = plot(; xlabel="γ", ylabel="Max R̂", title="Convergence",
+        xscale=:log10, legend=:topright)
+    hline!(p3, [1.1]; color=:gray, linestyle=:dash, linewidth=1, label="R̂ = 1.1")
+
+    for method in ["GPGM", "RFFGM"]
+        sub = filter(r -> r.method == method, gdf)
+        if nrow(sub) == 0; continue; end
+        c = method_color(method)
+        mk = method_marker(method)
+
+        plot!(p1, sub.gamma, sub.rmsd_mean; yerror=sub.rmsd_se,
+            color=c, marker=mk, markersize=5, label=method)
+        # For ESS, replace NaN with a small value for plotting
+        ess_plot = replace(sub.ess_avg, NaN => 1.0)
+        plot!(p2, sub.gamma, ess_plot;
+            color=c, marker=mk, markersize=5, label=method)
+        rhat_plot = replace(sub.rhat_avg, NaN => 3.0)
+        plot!(p3, sub.gamma, rhat_plot;
+            color=c, marker=mk, markersize=5, label=method)
+    end
+
+    fig = plot(p1, p2, p3; layout=(1, 3), size=(round(Int, FIG_W[1] * 1.3), FIG_W[2]))
+    path = joinpath(output_dir, "gamma_sensitivity.pdf")
+    savefig(fig, path)
+    @info "Saved $path"
+end
+
 # ── Tables ───────────────────────────────────────────────────────
 
 function generate_tables(output_dir::String)
@@ -589,11 +846,14 @@ function main()
     @info "Output directory: $output_dir"
 
     # Generate figures (skip gracefully if data missing)
-    plot_fig1(output_dir)
+    plot_fig1_state_scatter(output_dir)
+    plot_fig1_trajectory(output_dir)   # legacy (x, θ) view
+    plot_fig1(output_dir)               # legacy convergence
     plot_fig2(output_dir)
     plot_appfig1(output_dir)
     plot_appfig2(output_dir)
     plot_appfig3(output_dir)
+    plot_gamma_sensitivity(output_dir)
 
     # Generate tables
     generate_tables(output_dir)

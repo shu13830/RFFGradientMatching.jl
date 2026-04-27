@@ -40,7 +40,8 @@ const RESULTS_BASE = joinpath(@__DIR__, "results")
 struct ODEConfig
     name::String
     f!::Function
-    θ_true::Vector{Float64}
+    θ_true::Vector{Float64}            # default (pattern 1)
+    θ_patterns::Dict{Int,Vector{Float64}}  # all patterns (1 → default, 2 → ..., 3 → ...)
     u0::Vector{Float64}
     tspan::Tuple{Float64,Float64}
     noise_std::Float64
@@ -49,11 +50,21 @@ struct ODEConfig
     component_names::Vector{String}
 end
 
+"""Get θ_true for a given pattern ID (default=1)."""
+get_θ_true(config::ODEConfig, theta_id::Int=1) = config.θ_patterns[theta_id]
+
+# θ patterns per ODE:
+#   1: standard (literature default, used in main text)
+#   2: faster dynamics / higher excitability
+#   3: slower dynamics / weaker interaction
 const ODE_CONFIGS = Dict(
     "LV" => ODEConfig(
         "LV",
         lotkavolterrapredatorprey!,
         [2.0, 1.0, 4.0, 1.0],
+        Dict(1 => [2.0, 1.0, 4.0, 1.0],       # standard (MAGI)
+             2 => [3.0, 1.5, 5.0, 1.5],        # faster oscillation
+             3 => [1.5, 0.5, 3.0, 0.5]),        # weaker interaction
         [5.0, 3.0],
         (0.0, 2.0),
         0.5,
@@ -65,9 +76,12 @@ const ODE_CONFIGS = Dict(
         "FN",
         fitzhughnagumo!,
         [3.0, 0.2, 0.2],
+        Dict(1 => [3.0, 0.2, 0.2],             # standard (MAGI)
+             2 => [5.0, 0.3, 0.3],             # high excitability
+             3 => [1.5, 0.1, 0.5]),             # damped dynamics
         [-1.0, 1.0],
-        (0.0, 2.0),
-        0.5,
+        (0.0, 20.0),                            # MAGI paper: 2 full periods
+        0.2,                                    # MAGI paper: σ=0.2
         1.0 * with_lengthscale(SqExponentialKernel(), 1.0),
         ["theta1", "theta2", "theta3"],
         ["V", "R"],
@@ -76,12 +90,29 @@ const ODE_CONFIGS = Dict(
         "PST",
         signaltransductioncascade!,
         [0.07, 0.6, 0.05, 0.3, 0.017, 0.3],
+        Dict(1 => [0.07, 0.6, 0.05, 0.3, 0.017, 0.3],  # literature standard
+             2 => [0.1, 0.8, 0.08, 0.5, 0.03, 0.2],     # faster kinetics
+             3 => [0.04, 0.4, 0.03, 0.2, 0.01, 0.5]),    # slower kinetics
         [1.0, 0.0, 1.0, 0.0, 0.0],
         (0.0, 100.0),
         0.01,
         1.0 * with_lengthscale(SqExponentialKernel(), 1.0),
         ["k1", "k2", "k3", "k4", "V", "Km"],
         ["S", "dS", "R", "Rs", "Rpp"],
+    ),
+    "SIR" => ODEConfig(
+        "SIR",
+        sir!,
+        [0.5, 0.25],
+        Dict(1 => [0.5, 0.25],           # standard
+             2 => [1.0, 0.5],             # fast epidemic
+             3 => [0.3, 0.1]),            # slow epidemic
+        [0.99, 0.01, 0.0],
+        (0.0, 20.0),
+        0.02,
+        1.0 * with_lengthscale(SqExponentialKernel(), 1.0),
+        ["a", "b"],
+        ["S", "I", "R"],
     ),
 )
 
@@ -203,7 +234,9 @@ function make_lvc_config(K::Int;
     end
 
     config = ODEConfig(
-        "LVC_K$(K)", f!, alpha_offdiag_true, u0, tspan,
+        "LVC_K$(K)", f!, alpha_offdiag_true,
+        Dict(1 => alpha_offdiag_true),
+        u0, tspan,
         noise_std,
         1.0 * with_lengthscale(SqExponentialKernel(), 1.0),
         param_names, component_names,
@@ -264,6 +297,7 @@ function setup_model(::Type{RFFGM}, config::ODEConfig, times, y_obs, prob;
     set_priortransform_on_θ!(gm, fill(Normal(0.0, 1.0), n_θ), fill(log, n_θ))
     optimize_ϕ_and_σ!(gm)
     optimize_u!(gm)
+    cache_e_cov_chol!(gm)
     return gm
 end
 
@@ -278,20 +312,38 @@ function setup_model(::Type{GPGM}, config::ODEConfig, times, y_obs, prob;
     set_priortransform_on_θ!(gm, fill(Normal(0.0, 1.0), n_θ), fill(log, n_θ))
     optimize_ϕ_and_σ!(gm)
     optimize_u!(gm)
+    cache_e_cov_chol!(gm)
     return gm
 end
 
 function setup_model(::Type{MAGI}, config::ODEConfig, times, y_obs, prob;
-    kernel=config.kernel, anneal_length=1, n_rff=0, kwargs...)
+    kernel=config.kernel, anneal_length=1, n_rff=0,
+    discretization_level::Int=1, kwargs...)
+
+    # R MAGI default: insert midpoints between observations (setDiscretization level=1)
+    if discretization_level >= 1
+        midpoints = Float64[]
+        for lev in 1:discretization_level
+            n_pts = length(times) + length(midpoints)
+            all_pts = sort(vcat(times, midpoints))
+            new_mid = [(all_pts[i] + all_pts[i+1]) / 2 for i in 1:length(all_pts)-1]
+            midpoints = sort(vcat(midpoints, new_mid))
+        end
+        inducing_points = sort(vcat(times, midpoints))
+    else
+        inducing_points = nothing
+    end
 
     gm = MAGI(times, y_obs, prob, config.name;
         k=kernel, state_noise_std=STATE_NOISE_STD, obs_noise_std=config.noise_std,
-        anneal_length=anneal_length)
+        anneal_length=anneal_length,
+        inducing_points=inducing_points)
 
     n_θ = length(prob.p)
     set_priortransform_on_θ!(gm, fill(Normal(0.0, 1.0), n_θ), fill(log, n_θ))
     optimize_ϕ_and_σ!(gm)
     optimize_u!(gm)
+    cache_e_cov_chol!(gm)
     return gm
 end
 
@@ -627,7 +679,9 @@ function make_lorenz96_config(K::Int;
     u0 = F_true .* ones(K) .+ 0.01 .* randn(rng, K)  # near equilibrium + perturbation
 
     return ODEConfig(
-        "L96_K$(K)", lorenz96!, [F_true], u0, tspan,
+        "L96_K$(K)", lorenz96!, [F_true],
+        Dict(1 => [F_true]),
+        u0, tspan,
         noise_std,
         1.0 * with_lengthscale(SqExponentialKernel(), 1.0),
         ["F"],
@@ -665,7 +719,9 @@ function make_lynxhare_config(; kernel::KernelFunctions.Kernel=1.0*with_lengthsc
     u0 = y_obs[:, 1]
 
     config = ODEConfig(
-        "LynxHare", lotkavolterrapredatorprey!, θ_init, u0,
+        "LynxHare", lotkavolterrapredatorprey!, θ_init,
+        Dict(1 => θ_init),
+        u0,
         (times[1], times[end]),
         0.05,   # noise_std (rough estimate for scaled data)
         kernel,
